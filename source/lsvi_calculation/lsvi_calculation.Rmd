@@ -1,0 +1,611 @@
+---
+title: "LSVI calculation"
+output: html_document
+date: "2024-06-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(git2rdata)
+library(LSVI)
+library(n2khab)
+library(n2khabmon)
+library(sf)
+library(leaflet)
+
+source("functions_lsvi_calc.R")
+maakConnectiePool()
+```
+
+# Overview of MHQ schemes
+
+```{r}
+
+types <- read_types()
+
+schemes <- read_schemes()
+
+scheme_types <- read_scheme_types()
+
+mhq_schemes <- schemes %>%
+  filter(programme == "MHQ") %>%
+  select(programme, scheme) %>%
+  left_join(select(scheme_types, scheme, type), by = "scheme") %>%
+  left_join(select(types, type, typeclass), by = "type")
+```
+# Raw data
+
+```{r}
+path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_terr")
+
+path_mhq_terr_raw <- file.path(fileman_up("n2khab-mhq-data"), "raw/structure_variables")
+
+classif_mhq_terr <- read_vc(root = path_mhq_terr, file = "classif_mhq_terr") %>%
+  mutate(type_cover = as.numeric(type_cover),
+         type_observed = ifelse(type_observed == "-9", "gh", type_observed))
+
+header_mhq_terr <- read_vc(root = path_mhq_terr, file = "header_mhq_terr")
+
+structure_mhq_terr <- read_vc(root = path_mhq_terr, file = "structure_mhq_terr")
+vegetation_mhq_terr <- read_vc(root = path_mhq_terr, file = "vegetation_mhq_terr")
+
+pq_mhq_terr <- header_mhq_terr %>%
+  filter(!survey %in% c("Schelde-estuarium", "N2000meetnet_Bos_91E0_sf")) %>%
+  mutate(plot_type = ifelse(area == 9, "square",
+                            ifelse(area > 1000, "circle", NA)))
+```
+
+# Grasland and marsh habitats
+
+```{r}
+
+schemes_gr_bm <- mhq_schemes %>%
+  filter(typeclass %in% c("GR", "BMF", "CH")) %>%
+  filter(type != "1330_da")
+
+classif_gr_bm <- classif_mhq_terr %>%
+  mutate(survey = str_to_lower(survey)) %>%
+  filter(str_detect(survey, "moeras|grasland")) %>%
+  mutate(is_type_target = type_observed %in% schemes_gr_bm$type,
+         is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(schemes_gr_bm$type, 1, 4)) %>%
+  group_by(recording_givid) %>%
+  mutate(any_type_target = any(is_type_target),
+         n_type_target = sum(is_type_target),
+         cover_target = sum(type_cover * is_type_target),
+         type_cover_all = str_c(str_c(type_cover, "% ", type_observed), collapse = "; ")) %>%
+  ungroup() 
+
+ pq_gr_bm <- pq_mhq_terr %>%
+  mutate(survey = str_to_lower(survey)) %>%
+  filter(str_detect(survey, "moeras|grasland")) %>%
+  left_join(classif_gr_bm, by = c("recording_givid", "survey")) %>%
+  filter(is_type_target | (is_maintype_target & n_type_target == 0))
+```
+
+```{r}
+overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
+                            Habitattype = as.character(schemes_gr_bm$type),
+                            Versie = "Versie 3") %>%
+  distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde)
+
+```
+
+## Invoergegevens
+
+```{r}
+
+circle <- pq_mhq_terr %>%
+  filter(plot_type == "circle") %>%
+  distinct(vague_date_begin, recording_givid, user_reference)
+
+data_habitat_gr_bm <- pq_gr_bm %>%
+  filter(plot_type == "square") %>%
+  rename(recording_givid_square = recording_givid) %>%
+  left_join(circle, by = c("user_reference", "vague_date_begin")) %>%
+  mutate(ID = str_c(user_reference, "_", vague_date_begin)) %>%
+  select(survey, recording_givid_square,
+         recording_givid_circle = recording_givid, user_reference,
+         date = vague_date_begin, ID, 
+         Habitattype = type_observed)
+
+check <- data_habitat_gr_bm %>%
+  group_by(ID) %>%
+  filter(n() > 1)
+
+voorwaarden_circle <- get_voorwaarden_gr_bm(data_path = path_mhq_terr,
+                                            data_path_extravar = path_mhq_terr_raw,
+              record_ids = data_habitat_gr_bm$recording_givid_circle) %>%
+  filter(Indicator %in% c("verbossing", "structuurschade", "microreliëf")) %>%
+  mutate(plot_type = "cricle")
+
+voorwaarden_square <- get_voorwaarden_gr_bm(data_path = path_mhq_terr,
+                                            data_path_extravar = path_mhq_terr_raw,
+              record_ids = data_habitat_gr_bm$recording_givid_square) %>%
+  filter(Indicator %in% c("strooisellaag")) %>%
+  mutate(plot_type = "square")
+
+data_voorwaarden_gr_bm <- voorwaarden_circle %>%
+  bind_rows(voorwaarden_square)
+
+check <- data_voorwaarden_gr_bm %>%
+  group_by(ID, Voorwaarde) %>%
+  filter(n() > 1)
+
+data_soorten_kenm_gr_bm <- get_soorten_kenmerken(data_path = path_mhq_terr,
+                          record_ids = data_habitat_gr_bm$recording_givid_square) %>%
+  filter(!is.na(Kenmerk)) # to check
+
+check <- data_soorten_kenm_gr_bm %>%
+  group_by(ID, Kenmerk, Waarde, Vegetatielaag) %>%
+  filter(n() > 1)
+```
+
+## Volledigheid van de invoergegevens
+
+### Voorwaarden
+
++ Structuurschade 
++ Verbossing
++ Strooisellaag
++ Microreliëf
+
+```{r}
+voorwaarden_grl_bm <- overzicht_lsvi %>%
+  filter(Indicator %in% c("structuurschade", "verbossing", "strooisellaag", "microreliëf")) %>%
+  select(Habitatsubtype, Criterium, Indicator, Voorwaarde) 
+
+check_voorwaarden <- data_habitat_gr_bm %>%
+  rename(Habitatsubtype = Habitattype) %>%
+  left_join(voorwaarden_grl_bm, by = "Habitatsubtype") %>%
+  left_join(data_voorwaarden_gr_bm, by = c("ID", "Criterium", "Indicator", "Voorwaarde")) %>%
+  filter(!is.na(Voorwaarde))
+  
+voorwaarden_waarde_missing <- check_voorwaarden %>%
+  filter(is.na(Waarde))
+
+```
+
+
+### Ontbrekende gegevens aanvullen
+
+Na controle: ontbrekende waarden = 0.
+
+```{r}
+data_voorwaarden_gr_bm <- check_voorwaarden %>%
+  mutate(Waarde = ifelse(is.na(Waarde), 0, Waarde),
+         Type = "Percentage",
+         Eenheid = "%") %>%
+  select(ID, user_reference, recording_givid, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
+  unique()
+
+```
+
+
+## TEST 1330_hpr
+
+OK
+
+```{r}
+data_habitat_test <- data_habitat_gr_bm %>%
+  group_by(Habitattype) %>%
+  slice_head(n = 1) %>%
+  ungroup() %>%
+  filter(Habitattype != "6410") %>%
+  filter(Habitattype != "1330_da")
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "1330_hpr") 
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+
+
+
+
+
+## TEST 6230_ha
+
+```{r}
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype != "1330_hpr") %>%
+  filter(Habitattype != "1330_da")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test_resultaat_detail <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+
+## TEST 6230_hmo
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6230_hmo")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+## TEST 6230_hn
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6230_hn")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+## TEST 6230_hnk
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6230_hnk")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+## TEST 6410_mo
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6410_mo")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+
+## TEST 6410_ve
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6410_ve")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+
+## TEST 7140_oli
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "7140_oli")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+## TEST 7140_meso
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "7140_meso")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+# Dune habitat types
+
+# Grasland and marsh habitats
+
+```{r}
+
+schemes_cd <- mhq_schemes %>%
+  filter(typeclass %in% c("CD")) 
+
+classif_cd <- classif_mhq_terr %>%
+  mutate(survey = str_to_lower(survey)) %>%
+  filter(str_detect(survey, "duinen")) %>%
+  mutate(is_type_target = type_observed %in% schemes_gr_bm$type,
+         is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(schemes_gr_bm$type, 1, 4)) %>%
+  group_by(recording_givid) %>%
+  mutate(any_type_target = any(is_type_target),
+         n_type_target = sum(is_type_target),
+         cover_target = sum(type_cover * is_type_target),
+         type_cover_all = str_c(str_c(type_cover, "% ", type_observed), collapse = "; ")) %>%
+  ungroup() 
+
+ pq_cd <- pq_mhq_terr %>%
+  mutate(survey = str_to_lower(survey)) %>%
+  filter(str_detect(survey, "duinen")) %>%
+  left_join(classif_cd, by = c("recording_givid", "survey")) %>%
+  filter(is_type_target | (is_maintype_target & n_type_target == 0))
+```
+
+```{r}
+overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
+                            Habitattype = as.character(schemes_cd$type),
+                            Versie = "Versie 3") %>%
+  distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde)
+
+```
+
+## Invoergegevens
+
+```{r}
+
+circle <- pq_mhq_terr %>%
+  filter(plot_type == "circle") %>%
+  distinct(vague_date_begin, recording_givid, user_reference)
+
+data_habitat_cd <- pq_cd %>%
+  filter(plot_type == "square") %>%
+  rename(recording_givid_square = recording_givid) %>%
+  left_join(circle, by = c("user_reference", "vague_date_begin")) %>%
+  mutate(ID = str_c(user_reference, "_", vague_date_begin)) %>%
+  select(survey, recording_givid_square,
+         recording_givid_circle = recording_givid, user_reference,
+         date = vague_date_begin, ID, 
+         Habitattype = type_observed)
+
+check <- data_habitat_cd %>%
+  group_by(ID) %>%
+  filter(n() > 1)
+
+data_soorten_kenm_cd <- get_soorten_kenmerken(data_path = path_mhq_terr,
+                          record_ids = data_habitat_cd$recording_givid_square) %>%
+  filter(!is.na(Kenmerk)) %>%
+  unique() # check
+
+check <- data_soorten_kenm_cd %>%
+  group_by(ID, Kenmerk, Waarde, Vegetatielaag) %>%
+  filter(n() > 1)
+```
+
+```{r}
+data_habitat_test <- data_habitat_cd %>%
+  group_by(Habitattype) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+```
+
+## TEST 2120
+
++ spontane verstuiving: OK als niet 100% gefixeerd
+
++ belang structuurverstoring --> b WT --> < 1%
+
++ horizontale structuur: helm aanwezig en open zand aanwezig
+
++ naakte bodem --> via kartering
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "2120")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+## TEST 2130_hd
+
+OK
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "2130_hd")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+## TEST 2130_had
+
+OK
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "2130_had")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+## TEST 2160
+
++ minstens 2 ontwikkelingsstadia aanwezig: pionier, ontwikkeling, climax, degeneratie
++ open plek minstens WT: >= 1%
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "2160")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+## TEST 2170
+
+OK
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "2170")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+
+## TEST 2180
+
+
++ enkel indicatoren kruidlaag
+
++ vegetatielagen indien ingeschat op cirkelplot
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "2180")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+## TEST 2190_mp
+
+OK
+
+```{r}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "2190_mp")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
