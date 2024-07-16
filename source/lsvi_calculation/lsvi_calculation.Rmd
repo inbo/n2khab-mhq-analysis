@@ -1002,7 +1002,6 @@ test$Resultaat_detail %>%
 
 # Heath habitat types
 
-
 ```{r}
 
 schemes_hs_id <- mhq_schemes %>%
@@ -1055,7 +1054,217 @@ data_soorten_kenm_hs_id <- get_soorten_kenmerken(data_path_inboveg = path_mhq_te
 
 ```
 
+## Volledigheid van de invoergegevens
+
+### Voorwaarden
+
 ```{r}
+voorwaarden_hs_id  <- overzicht_lsvi %>%
+  semi_join(data_voorwaarden_hs_id , by = "Voorwaarde") %>%
+  select(Habitatsubtype, Criterium, Indicator, Voorwaarde) %>%
+  mutate(Voorwaarde = ifelse(Habitatsubtype == "2310" & Indicator == "horizontale structuur", 
+                             "bedekking open vegetaties en kaal zand", 
+                             Voorwaarde))
+
+voorwaarde_plot_type <- data_voorwaarden_hs_id  %>%
+  distinct(Voorwaarde, plot_type, Eenheid, Type)
+
+check_voorwaarden <- data_habitat_hs_id  %>%
+  rename(Habitatsubtype = Habitattype) %>%
+  left_join(voorwaarden_hs_id , by = "Habitatsubtype") %>%
+  left_join(voorwaarde_plot_type, by = "Voorwaarde") %>%
+  left_join(select(data_voorwaarden_hs_id , -Eenheid, -Type), by = c("ID", "Criterium", "Indicator", "Voorwaarde", "plot_type")) %>%
+  filter(!is.na(Voorwaarde))
+
+voorwaarden_record_missing <- check_voorwaarden %>%
+  filter(is.na(record_id)) %>%
+  select(ID, record_id_square, record_id_circle, date, Habitatsubtype, Indicator, Voorwaarde, Waarde)
+
+voorwaarden_waarde_missing %>%
+  write_csv2("../../output/heide_indicatoren_missing.csv")
 
 ```
+
+Na controle: ontbrekende waarden = 0 indien er een opname in inboveg zit.
+
+```{r}
+
+data_voorwaarden_hs_id <- check_voorwaarden %>%
+  mutate(Waarde = ifelse(is.na(Waarde) & !is.na(record_id), 0, Waarde)) %>%
+  select(ID, record_id, plot_type, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
+  unique() %>%
+  mutate(Voorwaarde = ifelse(Voorwaarde == "bedekking open vegetaties en kaal zand",
+                             "bedekking open vegetaties", Voorwaarde)) %>%
+  unique()
+
+```
+
+### Vegetatiegegevens
+
+```{r}
+check_missingveg <- data_habitat_hs_id  %>%
+  rename(record_id = record_id_square) %>%
+  anti_join(data_soorten_kenm_hs_id, by = c("record_id"))
+
+check_missingvalue <- data_habitat_hs_id  %>%
+  rename(record_id = record_id_square) %>%
+  left_join(data_soorten_kenm_hs_id, by = c("record_id", "ID"))
+
+missing_kenmerk <- check_missingvalue %>%
+  filter(is.na(Kenmerk))
+
+missing_cover <- check_missingvalue %>%
+  filter(is.na(Waarde))
+
+double <- data_soorten_kenm_hs_id %>%
+  filter(!is.na(Kenmerk)) %>%
+  group_by(ID, record_id, Kenmerk, Vegetatielaag) %>%
+  filter(n() > 1)
+  
+data_soorten_kenm_hs_id <- data_soorten_kenm_hs_id %>%
+  filter(!is.na(Kenmerk))
+```
+
+Ontbrekende soortnamen in kruidlaag --> Calluna dood, Erica dood
+Ontbrekende soortnamen in korstmoslaag --> korstmos spec. 
+
+geen impact op LSVI
+
+Ontbrekende bedekking wel een probleem: sleutelsoorten moeten talrijk aanwezig zijn.
+
+```{r}
+data_habitat_test <- data_habitat_hs_id %>%
+  group_by(Habitattype) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+```
+
+## TEST 2310
+
+```{r}
+data_habitat_test_type <- data_habitat_hs_id %>%
+  filter(Habitattype == "2310")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Dicranella species, Polytrichum species, Pseudoscleropodium species, Hypnum species.  Check de spelling en/of laat de auteursnaam weg bij genera.
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Voor opname 476086_2014-09-04 zijn in de moslaag de synoniemen 'Polytrichum species' en 'Pseudoscleropodium species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
+  
+--> mossoorten --> heeft geen impact op LSVI --> OK
+
+
+## TEST 2330_bu
+
+```{r}
+data_habitat_test_type <- data_habitat_hs_id%>%
+  filter(Habitattype == "2330_bu")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Polytrichum species, Dicranella species, Leptobryum species, Taraxacum Wiggers sectie Subvulgaria Christians., Pohlia species, Eurhynchium species, Hypnum species.  Check de spelling en/of laat de auteursnaam weg bij genera.
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Voor opname 1547090_2017-07-13 zijn in de moslaag de synoniemen 'Dicranella species' en 'Leptobryum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 177078_2014-09-10 zijn in de moslaag de synoniemen 'Dicranella species' en 'Polytrichum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 225910_2014-09-23 zijn in de moslaag de synoniemen 'Dicranella species' en 'Polytrichum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 714230_2016-09-28 zijn in de moslaag de synoniemen 'Eurhynchium species' en 'Hypnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
+  
+--> mossen geen impact op LSVI
+--> 1 record met Taraxacum Wiggers sectie Subvulgaria Christians. --> geen impact op LSVI
+
+## TEST 2330_dw
+
+```{r}
+data_habitat_test_type <- data_habitat_hs_id %>%
+  filter(Habitattype == "2330_dw")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+
+Aandeel meerjarige kruiden wordt berekend als de som van de bedekking van alles soorten exclusief éénjarigen; dus bedekking van bomen wordt ook meegrekend: OK?
+
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Dicranella species.  Check de spelling en/of laat de auteursnaam weg bij genera.
+  --> OK
+
+## TEST 4010
+
+```{r}
+data_habitat_test_type <- data_habitat_hs_id %>%
+  filter(Habitattype == "4010")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Sphagnum species, Dicranella species, Hypnum species, Sphagnum magellanicum Brid..  Check de spelling en/of laat de auteursnaam weg bij genera.
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Voor opname 120110_2014-09-24 zijn in de moslaag de synoniemen 'Dicranella species' en 'Sphagnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 35090_2015-09-24 zijn in de moslaag de synoniemen 'Dicranella species' en 'Sphagnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 35090_2019-08-21 zijn in de struiklaag de synoniemen 'Betula alba L.' en 'Betula pendula Roth' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
+
+Sphagnum magellanicum Brid. --> geen sleutelsoort
+13 anb-plots met Sphagnum species --> worden niet meegerekend als sleutelsoort
+
+## TEST 4030
+
+```{r}
+data_habitat_test_type <- data_habitat_hs_id %>%
+  filter(Habitattype == "4030")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Dicranella species, Hypnum species, Polytrichum species, Fontinalis species, Pseudoscleropodium species, Sphagnum species, Taraxacum Wiggers sectie Subvulgaria Christians., Bryum species, ANDERE SOORT.  Check de spelling en/of laat de auteursnaam weg bij genera.
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Voor opname 21430_2014-09-09 zijn in de moslaag de synoniemen 'Dicranella species' en 'Hypnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 42934_2014-09-10 zijn in de moslaag de synoniemen 'Fontinalis species' en 'Polytrichum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
+  
+  
+--> Niet herkende soorten hebben geen impact op LSVI
 

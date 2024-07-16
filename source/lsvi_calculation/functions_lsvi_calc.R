@@ -135,6 +135,7 @@ get_structure_var_fieldmap <- function(data_path, record_ids = NULL){
   structure_var <- read_vc(root = data_path, file = "structure_vars") %>%
     mutate(record_id = str_c(plot_id, "_", date_assessment),
            cover = ifelse(is.na(cover), cover_mean, cover)) %>%
+    filter(segment_id == 1) %>%
     select(record_id, structure_var, cover)
 
   if (is.null(record_ids)) {
@@ -315,7 +316,7 @@ get_soorten_kenmerken <- function(data_path_fieldmap = NULL, data_path_inboveg,
                                          "boomlaag",
                                          ifelse(layer_code %in% c("S", "SH"),
                                                 "struiklaag",
-                                                ifelse(layer_code %in% c("MO"),
+                                                ifelse(layer_code %in% c("MO", "ML", "KML", "VML"),
                                                        "moslaag", NA)
                                          )))) %>%
     rename(record_id = recording_givid)
@@ -488,6 +489,10 @@ get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
 
 get_voorwaarden_hs_id <- function(data_path_inboveg, data_path_fieldmap, record_ids = NULL) {
 
+  header <- get_header(data_path_inboveg, record_ids) %>%
+    mutate(ID = str_c(user_reference, "_", vague_date_begin)) %>%
+    select(record_id, ID)
+
  structure_var1 <- get_structure_var_fieldmap(data_path_fieldmap, record_ids) %>%
    filter(structure_var %in% c("herbs", "brushwood", "shrub_treelayer", "campylopus_introflexus", "lowshrublayer")) %>%
    mutate(Indicator = ifelse(structure_var == "herbs", "vergrassing",
@@ -500,37 +505,41 @@ get_voorwaarden_hs_id <- function(data_path_inboveg, data_path_fieldmap, record_
           Type = "Percentage",
           Waarde = cover,
           Eenheid = "%",
-          InvoerType = NA)
+          Invoertype = NA,
+          ID = record_id)
 
  structure_var2 <- get_structure_var(data_path_inboveg, record_ids) %>%
    filter(structure_var %in% c("verbossing", "vergrassing_4030_2310", "verruiging_4030_2310", "grijs_kronkelsteeltje", "dwergstruiken")) %>%
    mutate(Indicator = ifelse(structure_var == "vergrassing_4030_2310", "vergrassing",
                              ifelse(structure_var == "verruiging_4030_2310", "verruiging",
                                            ifelse(structure_var == "grijs_kronkelsteeltje", "invasieve exoten", structure_var))),
-          Criterium = "Verstoring",
+          Criterium = ifelse(Indicator == "dwergstruiken", "Structuur", "Verstoring"),
           Voorwaarde = str_c("bedekking ", Indicator),
           Type = "Percentage",
           Waarde = cover,
           Eenheid = "%",
-          InvoerType = NA) %>%
-   rename(record_id = recording_givid)
+          Invoertype = NA) %>%
+   rename(record_id = recording_givid) %>%
+   left_join(header, by = "record_id")
 
  calluna_fieldmap <- get_structure_var_fieldmap(data_path_fieldmap, record_ids) %>%
    filter(str_detect(structure_var, "calluna")) %>%
    mutate(calluna_phase = ifelse(structure_var == "calluna_phase_pioneer", "calluna_pioniersfase",
                                  ifelse(structure_var == "calluna_phase_climax", "calluna_climaxfase",
                                         ifelse(structure_var == "calluna_phase_devel", "calluna_ontwikkelingsfase",
-                                               ifelse(structure_var == "calluna_phase_degen", "calluna_degeneratiefase", NA)))))
+                                               ifelse(structure_var == "calluna_phase_degen", "calluna_degeneratiefase", NA)))),
+          ID = record_id)
 
  calluna_inboveg <- get_structure_var(data_path_inboveg, record_ids) %>%
    filter(str_detect(structure_var, "calluna")) %>%
-   rename(record_id = recording_givid, calluna_phase = structure_var)
+   rename(record_id = recording_givid, calluna_phase = structure_var) %>%
+   left_join(header, by = "record_id")
 
  voorwaarden_calluna <- calluna_fieldmap %>%
    bind_rows(calluna_inboveg) %>%
-   distinct(record_id, calluna_phase, cover) %>%
+   distinct(ID, record_id, calluna_phase, cover) %>%
    mutate(cover = ifelse(is.na(cover), 0, cover)) %>%
-   group_by(record_id) %>%
+   group_by(ID, record_id) %>%
    summarise("aantal ouderdomsstadia" = sum(cover >= 3), # T = 3%
              "climax- of degeneratiestadium aanwezig" = sum((cover >= 3) * calluna_phase %in% c("calluna_climaxfase", "calluna_degeneratiefase")),
              "aanwezigheid Struikheide" = sum(cover) > 0
@@ -545,56 +554,26 @@ get_voorwaarden_hs_id <- function(data_path_inboveg, data_path_fieldmap, record_
                             "Structuur"),
           Type = "Geheel getal",
           Eenheid = NA,
-          InvoerType = NA)
-
- calluna_fieldmap <- get_structure_var_fieldmap(data_path_fieldmap, record_ids) %>%
-   filter(str_detect(structure_var, "calluna")) %>%
-   mutate(calluna_phase = ifelse(structure_var == "calluna_phase_pioneer", "calluna_pioniersfase",
-                                 ifelse(structure_var == "calluna_phase_climax", "calluna_climaxfase",
-                                        ifelse(structure_var == "calluna_phase_devel", "calluna_ontwikkelingsfase",
-                                               ifelse(structure_var == "calluna_phase_degen", "calluna_degeneratiefase", NA)))))
-
- calluna_inboveg <- get_structure_var(data_path_inboveg, record_ids) %>%
-   filter(str_detect(structure_var, "calluna")) %>%
-   rename(record_id = recording_givid, calluna_phase = structure_var)
-
- voorwaarden_calluna <- calluna_fieldmap %>%
-   bind_rows(calluna_inboveg) %>%
-   distinct(record_id, calluna_phase, cover) %>%
-   mutate(cover = ifelse(is.na(cover), 0, cover)) %>%
-   group_by(record_id) %>%
-   summarise("aantal ouderdomsstadia" = sum(cover >= 3), # T = 3%
-             "climax- of degeneratiestadium aanwezig" = sum((cover >= 3) * calluna_phase %in% c("calluna_climaxfase", "calluna_degeneratiefase")),
-             "aanwezigheid Struikheide" = sum(cover) > 0
-   ) %>%
-   ungroup() %>%
-   pivot_longer(cols = c("aantal ouderdomsstadia", "climax- of degeneratiestadium aanwezig", "aanwezigheid Struikheide"),
-                names_to = "Voorwaarde",
-                values_to = "Waarde") %>%
-   mutate(Indicator = ifelse(Voorwaarde == "aanwezigheid Struikheide", "sleutelsoorten",
-                             "ouderdomsstructuur Struikheide"),
-          Criterium = ifelse(Voorwaarde == "aanwezigheid Struikheide", "Vegetatie",
-                            "Structuur"),
-          Type = "Geheel getal",
-          Eenheid = NA,
-          InvoerType = NA)
+          Invoertype = NA)
 
  pioneer_fieldmap <- get_structure_var_fieldmap(data_path_fieldmap, record_ids) %>%
    filter(str_detect(structure_var, "pioneer_")) %>%
    mutate(pioneer_phase = ifelse(structure_var == "pioneer_lichenen", "pioniersstadie_korstmossen",
                                  ifelse(structure_var == "pioneer_mos", "pioniersstadie_mossen",
                                         ifelse(structure_var == "pioneer_coryn_aira", "pioniersstadia_buntgras",
-                                               ifelse(structure_var == "pioneer_phase_open_soil", "pioniersstadia_open_bodem", NA)))))
+                                               ifelse(structure_var == "pioneer_phase_open_soil", "pioniersstadia_open_bodem", NA)))),
+          ID = record_id)
 
  pioneer_inboveg <- get_structure_var(data_path_inboveg, record_ids) %>%
    filter(str_detect(structure_var, "pioniersstad")) %>%
-   rename(record_id = recording_givid, pioneer_phase = structure_var)
+   rename(record_id = recording_givid, pioneer_phase = structure_var) %>%
+   left_join(header, by = "record_id")
 
  voorwaarden_pioneer <- pioneer_fieldmap %>%
    bind_rows(pioneer_inboveg) %>%
-   distinct(record_id, pioneer_phase, cover) %>%
+   distinct(ID, record_id, pioneer_phase, cover) %>%
    mutate(cover = ifelse(is.na(cover), 0, cover)) %>%
-   group_by(record_id) %>%
+   group_by(ID, record_id) %>%
    summarise("bedekking open vegetaties en kaal zand" = pmin(sum(cover), 100),
              "bedekking open vegetaties" = pmin(sum(cover * (pioneer_phase != "pioniersstadia_open_bodem")), 100),
              "bedekking naakte bodem" = sum(cover * (pioneer_phase == "pioniersstadia_open_bodem"))
@@ -608,30 +587,25 @@ get_voorwaarden_hs_id <- function(data_path_inboveg, data_path_fieldmap, record_
           Criterium = "Structuur",
           Type = "Percentage",
           Eenheid = "%",
-          InvoerType = NA)
+          Invoertype = NA)
 
  structure_var <- structure_var1 %>%
    bind_rows(structure_var2) %>%
    bind_rows(voorwaarden_calluna) %>%
    bind_rows(voorwaarden_pioneer) %>%
-   select(-structure_var, -cover)
+   select(-structure_var, -cover) %>%
+   select(ID, everything())
 
   return(structure_var)
 }
 
 get_kenmerken_open_zand <- function(data_path_inboveg, data_path_fieldmap, record_ids = NULL) {
 
-  header <- get_header(data_path_inboveg, record_ids) %>%
-    mutate(ID = str_c(user_reference, "_", vague_date_begin)) %>%
-    select(record_id, ID)
-
   open_zand <- get_voorwaarden_hs_id(data_path_inboveg, data_path_fieldmap, record_ids) %>%
     filter(Indicator == "naakte bodem") %>%
     mutate(Kenmerk = "open zand",
            TypeKenmerk = "studiegroep",
            ) %>%
-    left_join(header, by = "record_id") %>%
-    mutate(ID = ifelse(is.na(ID), record_id, ID)) %>%
     select(record_id, ID, Kenmerk, TypeKenmerk, Waarde, Eenheid, Type)
 
   return(open_zand)
