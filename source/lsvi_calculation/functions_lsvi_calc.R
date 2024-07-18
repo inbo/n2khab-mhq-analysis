@@ -135,7 +135,7 @@ get_structure_var_fieldmap <- function(data_path, record_ids = NULL){
   structure_var <- read_vc(root = data_path, file = "structure_vars") %>%
     mutate(record_id = str_c(plot_id, "_", date_assessment),
            cover = ifelse(is.na(cover), cover_mean, cover)) %>%
-    filter(segment_id == 1) %>%
+    filter(segment_id == 1 | is.na(segment_id)) %>%
     select(record_id, structure_var, cover)
 
   if (is.null(record_ids)) {
@@ -256,7 +256,7 @@ get_voorwaarden_gr_bm <- function(data_path_fieldmap, data_path_inboveg,
     select(record_id = recording_givid, Criterium, Indicator = structure_var,
            Voorwaarde, Waarde = cover)
 
-  voorwaarde_verbossing_fieldmap <- get_structure_var_fieldmap(data_path_fieldmap, record_ids) %>%
+  voorwaarde_verbossing_fieldmap <- get_structure_var_fieldmap(data_path = data_path_fieldmap, record_ids) %>%
     filter(structure_var %in% c("shrub_treelayer")) %>%
       mutate(Indicator = "verbossing",
              Voorwaarde = str_c("bedekking ", Indicator),
@@ -609,4 +609,55 @@ get_kenmerken_open_zand <- function(data_path_inboveg, data_path_fieldmap, recor
     select(record_id, ID, Kenmerk, TypeKenmerk, Waarde, Eenheid, Type)
 
   return(open_zand)
+}
+
+################################################################################
+### write lsvi results
+################################################################################
+
+write_lsvi_results <- function(lsvi_object, path, suffix = "") {
+
+  lsvi_detail <- lsvi_object$Resultaat_detail %>%
+  mutate(plot_type = ifelse(is.na(plot_type), "square", plot_type),
+         waarde_numeric = round(as.numeric(Waarde), 4),
+         Verschilscore = round(Verschilscore, 4)) %>%
+  select(id = ID, survey, record_id_square, record_id_circle, type_observed, type_analysis = Habitattype, Criterium, Indicator, Belang, Voorwaarde,
+         plot_type, Waarde, waarde_numeric, Referentiewaarde, Status_voorwaarde, TheoretischMaximum, Verschilscore)
+
+  colnames(lsvi_detail) <- str_to_lower(colnames(lsvi_detail))
+
+  write_vc(lsvi_detail, file = str_c("lsvi_detail", suffix), root = path,
+           sorting = c("id", "type_analysis", "voorwaarde"))
+
+  lsvi_indicator <- lsvi_object$Resultaat_indicator %>%
+    mutate(Verschilscore = round(Verschilscore, 4)) %>%
+    select(ID, type_analysis = Habitattype, Criterium, Indicator, Belang, Status_indicator, Verschilscore)
+
+  colnames(lsvi_indicator) <- str_to_lower(colnames(lsvi_indicator))
+
+  write_vc(lsvi_indicator, file = str_c("lsvi_indicator", suffix), root = path,
+           sorting = c("id", "type_analysis", "indicator"))
+
+  lsvi_criterium <- lsvi_object$Resultaat_criterium %>%
+    select(-Versie, -Kwaliteitsniveau) %>%
+    rename(type_analysis = Habitattype) %>%
+    mutate(Index_min_criterium = round(Index_min_criterium, 4),
+           Index_harm_criterium = round(Index_harm_criterium, 4))
+
+  colnames(lsvi_criterium) <- str_to_lower(colnames(lsvi_criterium))
+
+  write_vc(lsvi_criterium,  file = str_c("lsvi_criterium", suffix), root = path,
+           sorting = c("id", "type_analysis", "criterium"))
+
+  lsvi_globaal <- lsvi_object$Resultaat_globaal %>%
+    select(-Versie, -Kwaliteitsniveau) %>%
+    rename(type_analysis = Habitattype) %>%
+    mutate(Index_min_min = round(Index_min_min, 4),
+           Index_harm_harm = round(Index_harm_harm, 4),
+           Index_min_harm = round(Index_min_harm, 4))
+
+  colnames(lsvi_globaal) <- str_to_lower(colnames(lsvi_globaal))
+
+  write_vc(lsvi_globaal, file = str_c("lsvi_globaal", suffix), root = path,
+           sorting = c("id", "type_analysis"))
 }
