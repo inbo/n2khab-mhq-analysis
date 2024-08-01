@@ -661,3 +661,327 @@ write_lsvi_results <- function(lsvi_object, path, suffix = "") {
   write_vc(lsvi_globaal, file = str_c("lsvi_globaal", suffix), root = path,
            sorting = c("id", "type_analysis"))
 }
+
+
+##############################################################################
+### Functies voor paramaterschatting op basis van resultaten LSVI-rekenmodule
+##############################################################################
+
+geefParameters <- function(model, type = "binomial"){
+
+  if (type == "binomial"){
+
+    estimates <- NULL
+
+    for(var in rownames((summary(model))$coefficients)){
+
+      AandeelGunstig <- round(plogis(coef(model)[var]) *100, 2)
+
+      confidence_intervals <- confint(model)
+
+      AandeelGunstig_LLCI <- round(plogis(confidence_intervals[var, "2.5 %"])* 100, 2)
+      AandeelGunstig_ULCI <- round(plogis(confidence_intervals[var, "97.5 %"])* 100, 2)
+
+      estimates_temp <- data.frame(varName = as.character(var), AandeelGunstig, AandeelGunstig_LLCI, AandeelGunstig_ULCI, stringsAsFactors = FALSE)
+      estimates <- bind_rows(estimates, estimates_temp)
+    }
+
+  } else if (type == "gaussian"){
+
+    estimates <- NULL
+
+    for(var in rownames((summary(model))$coefficients)){
+
+      Gemiddelde <- round(coef(model)[var], 4)
+
+      confidence_intervals <- confint(model)
+
+      Gemiddelde_LLCI <- round(confidence_intervals[var, "2.5 %"], 4)
+      Gemiddelde_ULCI <- round(confidence_intervals[var, "97.5 %"], 4)
+
+      estimates_temp <- data.frame(varName = as.character(var), Gemiddelde, Gemiddelde_LLCI, Gemiddelde_ULCI, stringsAsFactors = FALSE)
+      estimates <- bind_rows(estimates, estimates_temp)
+
+    }
+  }
+
+  return(estimates)
+
+}
+
+###########################################################################################################
+
+habitatandeelGunstig <- function(data, stratSBZH = FALSE){
+
+  output <- NULL
+
+  for(habitat in unique(data$Habitattype)){
+
+    for (versie in unique(data$Versie)){
+
+      data_versie <- data %>%
+        filter(Versie == versie) %>%
+        filter(Habitattype == habitat)
+
+      if (stratSBZH){
+        design <- svydesign(id = ~1, weights = ~WeightComb, strata = ~SBZH, data = data_versie)
+
+      } else {
+        design <- svydesign(id = ~1, weights = ~WeightComb,  data = data_versie)
+      }
+
+      #schatting schaal Vlaanderen
+
+      model_Vlaanderen <- svyglm(formula = Status_habitatvlek ~ 1, design = design, family = "quasibinomial")
+
+      param_Vlaanderen <- geefParameters(model_Vlaanderen)
+
+      output_Vlaanderen <- data_versie %>%
+        mutate(TypeResultaat = "Habitattype",
+               SBZH = "Binnen & Buiten") %>%
+        group_by(TypeResultaat, Versie, Habitattype, SBZH) %>%
+        summarise(Habitatsubtype = paste(unique(Habitatsubtype), collapse = "; "),
+                  nObs = n(),
+                  sumWeightsPlot = sum(PlotWeight)/100,
+                  sumWeightStratum = sum(StratumWeight),
+                  sumWeightsComb = sum(WeightComb),
+                  mean = mean(Status_habitatvlek),
+                  weightedMean = weighted.mean(Status_habitatvlek, WeightComb)
+        ) %>%
+        ungroup() %>%
+        bind_cols(param_Vlaanderen)
+
+      output <- bind_rows(output, output_Vlaanderen)
+
+      #schatting per SBZH
+
+      if(n_distinct(data_versie$SBZH) > 1) {
+
+        model_SBZH <- svyglm(formula = Status_habitatvlek ~ 0 + SBZH, design = design, family = "quasibinomial")
+
+        param_SBZH <- geefParameters(model_SBZH)
+
+        output_SBZH <- data_versie %>%
+          group_by(Versie, Habitattype, SBZH) %>%
+          summarise(TypeResultaat = "SBZH",
+                    Habitatsubtype = paste(unique(Habitatsubtype), collapse = "; "),
+                    nObs = n(),
+                    sumWeightsPlot = sum(PlotWeight)/100,
+                    sumWeightStratum = sum(StratumWeight),
+                    sumWeightsComb = sum(WeightComb),
+                    mean = mean(Status_habitatvlek),
+                    weightedMean = weighted.mean(Status_habitatvlek, WeightComb)
+          ) %>%
+          ungroup() %>%
+          arrange(SBZH) %>%
+          bind_cols(param_SBZH)
+
+        output <- bind_rows(output, output_SBZH)
+
+      }
+
+      #schatting per Subtype
+
+      if(n_distinct(data_versie$Habitatsubtype) > 1){
+
+        #selecteer subtypen met meer dan 1 observatie
+        # data_versie <- data_versie %>%
+        #   group_by(Habitatsubtype) %>%
+        #   mutate(n = n()) %>%
+        #   ungroup() %>%
+        #   filter(n > 1) %>%
+        #   select(-n)
+
+        model_subt <- svyglm(formula = Status_habitatvlek ~ 0 + Habitatsubtype, design = design, family = "quasibinomial")
+
+        param_subt <- geefParameters(model_subt)
+
+        output_subt <- data_versie %>%
+          mutate(SBZH = "Binnen & Buiten") %>%
+          group_by(Versie, Habitattype, Habitatsubtype, SBZH) %>%
+          summarise(TypeResultaat = "Habitatsubtype",
+                    nObs = n(),
+                    sumWeightsPlot = sum(PlotWeight)/100,
+                    sumWeightStratum = sum(StratumWeight),
+                    sumWeightsComb = sum(WeightComb),
+                    mean = mean(Status_habitatvlek),
+                    weightedMean = weighted.mean(Status_habitatvlek, WeightComb)
+          ) %>%
+          ungroup() %>%
+          arrange(Habitatsubtype) %>%
+          bind_cols(param_subt)
+
+        output <- bind_rows(output, output_subt)
+
+      }
+
+    }
+
+  }
+
+  # we geven geen betrouwbaarheidsinterval als n < 5
+  output <- output %>%
+    mutate(AandeelGunstig_LLCI = ifelse(nObs < 5, NA, AandeelGunstig_LLCI),
+           AandeelGunstig_ULCI  = ifelse(nObs < 5, NA, AandeelGunstig_ULCI))
+
+  return(output)
+
+}
+
+###########################################################################################################
+
+habitatGemiddeldeVW <- function(data, stratSBZH = TRUE){
+
+  output <- NULL
+
+  for(habitat in unique(data$Habitattype)){
+
+    for (versie in unique(data$Versie)){
+
+      data_versie <- data %>%
+        filter(Versie == versie) %>%
+        filter(Habitattype == habitat) %>%
+        mutate(Waarde = as.numeric(Waarde)) %>%
+        filter(!is.na(Waarde))
+
+      for(vw in unique(data_versie$Voorwaarde)){
+
+        if (stratSBZH){
+          design <- svydesign(id = ~1, weights = ~WeightComb, strata = ~SBZH, data = data_versie)
+
+        } else {
+          design <- svydesign(id = ~1, weights = ~WeightComb,  data = data_versie)
+        }
+
+        #schatting schaal Vlaanderen
+
+        model_Vlaanderen <- svyglm(formula = Waarde ~ 1, design = design, family = "gaussian")
+
+        param_Vlaanderen <- geefParameters(model_Vlaanderen, type = "gaussian")
+
+        output_Vlaanderen <- data_versie %>%
+          mutate(SBZH = "Binnen & Buiten") %>%
+          group_by(Versie, Habitattype, SBZH, Indicator, Voorwaarde) %>%
+          summarise(Habitatsubtype = paste(unique(Habitatsubtype), collapse = "; "),
+                    nObs = n(),
+                    sumWeightsPlot = sum(PlotWeight)/100,
+                    sumWeightStratum = sum(StratumWeight),
+                    sumWeightsComb = sum(WeightComb),
+                    mean = mean(Waarde),
+                    weightedMean = weighted.mean(Waarde, WeightComb)
+          ) %>%
+          ungroup() %>%
+          bind_cols(param_Vlaanderen)
+
+        output <- bind_rows(output, output_Vlaanderen)
+
+        #schatting per SBZH
+
+        if(n_distinct(data_versie$SBZH) > 1) {
+
+          model_SBZH <- svyglm(formula = Waarde ~ 0 + SBZH, design = design, family = "gaussian")
+
+          param_SBZH <- geefParameters(model_SBZH, type ="gaussian")
+
+          output_SBZH <- data_versie %>%
+            group_by(Versie, Habitattype, SBZH, Indicator, Voorwaarde) %>%
+            summarise(Habitatsubtype = paste(unique(Habitatsubtype), collapse = "; "),
+                      nObs = n(),
+                      sumWeightsPlot = sum(PlotWeight)/100,
+                      sumWeightStratum = sum(StratumWeight),
+                      sumWeightsComb = sum(WeightComb),
+                      mean = mean(Waarde),
+                      weightedMean = weighted.mean(Waarde, WeightComb)
+            ) %>%
+            ungroup() %>%
+            arrange(SBZH) %>%
+            bind_cols(param_SBZH)
+
+          output <- bind_rows(output, output_SBZH)
+
+        }
+
+        #schatting per Subtype
+
+        if(n_distinct(data_versie$Habitatsubtype) > 1){
+
+          #selecteer subtypen met meer dan 1 observatie
+          # data_versie <- data_versie %>%
+          #   group_by(Habitatsubtype) %>%
+          #   mutate(n = n()) %>%
+          #   ungroup() %>%
+          #   filter(n > 1) %>%
+          #   select(-n)
+
+          model_subt <- svyglm(formula = Waarde ~ 0 + Habitatsubtype, design = design, family = "gaussian")
+
+          param_subt <- geefParameters(model_subt, type = "gaussian")
+
+          output_subt <- data_versie %>%
+            mutate(SBZH = "Binnen & Buiten") %>%
+            group_by(Versie, Habitattype, Habitatsubtype, SBZH, Indicator, Voorwaarde) %>%
+            summarise( nObs = n(),
+                       sumWeightsPlot = sum(PlotWeight)/100,
+                       sumWeightStratum = sum(StratumWeight),
+                       sumWeightsComb = sum(WeightComb),
+                       mean = mean(Waarde),
+                       weightedMean = weighted.mean(Waarde, WeightComb)
+            ) %>%
+            ungroup() %>%
+            arrange(Habitatsubtype) %>%
+            bind_cols(param_subt)
+
+          output <- bind_rows(output, output_subt)
+
+        }
+
+
+      }
+
+    }
+  }
+
+
+  # we geven geen betrouwbaarheidsinterval als n < 5
+  output <- output %>%
+    mutate(Gemiddelde_LLCI = ifelse(nObs < 5, NA, Gemiddelde_LLCI),
+           Gemiddelde_ULCI  = ifelse(nObs < 5, NA, Gemiddelde_ULCI))
+
+  return(output)
+
+}
+###########################################################################################################
+
+aandeel_gunstig_indicator <- function(data_indicator) {
+
+  status_indicatoren <- NULL
+
+  for (habt in unique(data_indicator$Habitattype)) {
+
+    data_habt <- data_indicator %>%
+      filter(Habitattype == habt)
+
+    for (ind in unique(data_habt$Indicator)) {
+
+      data_ind <- data_habt %>%
+        filter(Indicator == ind) %>%
+        mutate(Status_habitatvlek = ifelse(Status_indicator, 1, 0))
+
+      if (nrow(data_ind) > 1) {
+
+        result_temp <- habitatandeelGunstig(data_ind, stratSBZH = FALSE) %>%
+          mutate(Indicator = ind,
+                 Schaal = "Vlaanderen")
+
+        status_indicatoren <- bind_rows(status_indicatoren, result_temp)
+      }
+    }
+  }
+
+  return(status_indicatoren)
+}
+
+
+
+
+

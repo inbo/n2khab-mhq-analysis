@@ -617,6 +617,8 @@ geen warnings
 
 #### TEST 7140_oli
 
+belang 'veenmossen' ontbreekt --> moet zb zijn
+
 ```{r, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_gr_bm %>%
