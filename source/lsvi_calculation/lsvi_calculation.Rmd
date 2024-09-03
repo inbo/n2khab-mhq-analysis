@@ -715,12 +715,26 @@ schemes_cd <- mhq_schemes %>%
 ```
 
 ```{r}
+schemes_cd %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+
+```{r}
 overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
                             Habitattype = as.character(schemes_cd$type),
                             Versie = "Versie 3") %>%
   distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde, Beoordeling)
 
 ```
+
+```{r}
+overzicht_lsvi %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
 
 ## Invoergegevens
 
@@ -733,8 +747,7 @@ data_habitat_cd <- data_habitat %>%
   mutate(any_type_target = any(is_type_target),
          n_type_target = sum(is_type_target),
          cover_target = sum(type_cover * is_type_target),
-         Habitattype = ifelse(type_observed == "6410", "6410_mo",
-                              type_observed)) %>%
+         Habitattype = ifelse(type_observed == "2190", "2190_mp", type_observed)) %>%
   ungroup() %>%
   filter(is_maintype_target)
 
@@ -764,7 +777,26 @@ data_habitat_test <- data_habitat_cd %>%
   ungroup()
 ```
 
-## Volledigheid van de invoergegevens
+## Berkening voorwaarden
+
+Volgende voorwaarden worden rechtstreeks ingeschat op terrein:
+
++ bedekking rijshout (2120)
++ open plekken aanwezig (2160)
++ bedekking structuurverstoring (2120)
+
+Volgende voorwaarden worden afgeleid uit de meetvariabelen:
+
++ fijnmazige afwisseling (2120): we beschouwen deze voorwaarde als gunstig indien zowel helm als open zand aanwezig zijn.
++ spontane verstuiving (2120): binnen de cirkelplot wordt de bedekking geschat van volgende categorieën: beperkte verstuiving, sterke verstuiving en gefixeerd. Spontane verstuiving beschouwen we als gunstig wanneer de som van de 'beperkte verstuiving' en 'sterke verstuiving' groter is dan 0% (of 30% ??).
++ bedekking alle mossen (2120): hier moeten we de bedekking berekenen t.o.v. het begroeide deel van de duin. Het begroeide deel van de duin bepalen we als 100% min de bedekking van naakte bodem.
++ aantal struweelsoorten (2160): op basis van de bedekking van de struweeltypes pionier, ontwikkeling, climax en degeneratie bepalen we het aantal aanwezige struweelsoorten.
+
+De voorwaarde 'naakte bodem' van habitattype 2120 wordt niet bepaald.
+
+Voor habitattype 2180 zijn er geen dendrometrische gegevens en kunnen enkel de voorwaarden die af te leiden zijn uit de kruidlaaggegevens bepaald worden.
+
+## Ontbrekende waarden
 
 ### Voorwaarden
 
@@ -773,6 +805,7 @@ voorwaarden_cd <- overzicht_lsvi %>%
   semi_join(data_voorwaarden_cd, by = "Voorwaarde") %>%
   select(Habitatsubtype, Criterium, Indicator, Voorwaarde) 
 
+# fijnmazige afwisseling kunnen zowel in vierkant als cirkelplot worden ingeschat, alle andere voorwaarde enkel in cirkelplot bepaald
 voorwaarde_plot_type <- data_voorwaarden_cd %>%
   distinct(Voorwaarde, plot_type, Eenheid, Type) %>%
   filter(!((Voorwaarde %in% c("fijnmazige afwisseling", "bedekking alle mossen")) & (plot_type ==  "circle")))
@@ -787,7 +820,7 @@ check_voorwaarden <- data_habitat_cd %>%
 open_plek_circle <- check_voorwaarden %>%
   filter(Voorwaarde == "open plekken aanwezig")
  
-open_plek_square <- get_cover_veglayers(data_path, record_ids = open_plek_circle$record_id_square) %>%
+open_plek_square <- get_cover_veglayers(data_path = path_mhq_terr, record_ids = open_plek_circle$record_id_square) %>%
   filter(layer_code %in% c("NB")) %>%
   rename(record_id_square = recording_givid) %>%
   select(record_id_square, cover_square = cover)
@@ -795,24 +828,47 @@ open_plek_square <- get_cover_veglayers(data_path, record_ids = open_plek_circle
 check_open_plek <- open_plek_circle %>%
   left_join(open_plek_square, by = "record_id_square") 
 
+duindoorn_aanwezig <- data_soorten_kenm_cd %>%
+  group_by(ID) %>%
+  filter(Kenmerk == "Hippophae rhamnoides L.") %>%
+  summarise(dunidoorn_bedekking = str_c(str_c(Vegetatielaag, ": ", Waarde), collapse = "; ")) %>%
+  ungroup()
+              
+
 voorwaarden_waarde_missing <- check_voorwaarden %>%
   filter(is.na(Waarde)) %>%
   filter(Voorwaarde != "open plekken aanwezig") %>%
   filter(!(Voorwaarde == "fijnmazige afwisseling" & plot_type == "circle")) %>%
-  select(record_id_square, record_id_circle, date, Habitatsubtype, Indicator, Voorwaarde, Waarde)
+  select(ID, record_id_square, record_id_circle, type_observed, type_cover_all, date, Habitatsubtype, Indicator, Voorwaarde, Waarde) %>%
+  left_join(duindoorn_aanwezig, by = "ID")
 
 voorwaarden_waarde_missing %>%
+  filter(Voorwaarde != "aantal struweelsoorten") %>%
   write_csv2("../../output/cd_indicatoren_missing.csv")
 
+voorwaarden_waarde_missing %>%
+  filter(Voorwaarde == "aantal struweelsoorten") %>%
+  write_csv2("../../output/struweelsoorten_missing.csv")
+
 check_open_plek %>%
+  filter(is.na(Waarde)) %>%
+  filter(type_cover_all == "100% 2160") %>%
+  select(record_id_square, record_id_circle, type_observed, Indicator, Voorwaarde, Waarde, naakte_bodem_square = cover_square) %>%
   write_csv2("../../output/cd_open_plek_missing.csv")
 ```
 
-Na controle: ontbrekende waarden = 0 indien er een opname in inboveg zit.
+Voor de voorwaarden bedekking rijshout, bedekking alle mossen, bedekking structuurverstoring veronderstellen we dat de ontbrekende waarden = 0 indien er een opname in inboveg zit.
 
-Open plek:
-+ Als waarde ontbreekt voor cirkelplot gebruiken we waarde van vierkante plot
-+ Als waarde ook ontbreekt in vierkante plot --> 0
+Voor voorwaarde open plek:
++ Als waarde ontbreekt voor cirkelplot gebruiken we waarde voor bedekking naakte bodem van vierkante plot
++ Als waarde ook ontbreekt in vierkante plot veronderstellen we 0 % bedekking
+
+Voorwaarde aantal struweelsoorten: indien geen enkele bedekking is ingevuld voor een van de struweeltypes:
++ als duindoorn niet aanwezig is veronderstellen we dat er 0 struweelsoorten zijn
++ als duindoorn wel aanwezig is, is het aantal struweelsoorten onbekend (NA)
+
+Voorwaarde spontane verstuiving: indien geen enkele vedekking is ingevuld voor een van de verstuivingsklassen:
++ kijken naar aanwezigheid naakte bodem
 
 ```{r}
 
@@ -854,7 +910,7 @@ missing_kenmerk <- check_missingvalue %>%
   filter(is.na(Kenmerk))
 
 missing_kenmerk %>%
-  select(recording_givid, ID, Habitattype, Vegetatielaag, Kenmerk, Waarde) %>%
+  select( ID, Habitattype, Vegetatielaag, Kenmerk, Waarde) %>%
   write_csv2("../../output/cd_check_vegopname.csv")
 
 missing_cover <- check_missingvalue %>%
@@ -862,29 +918,25 @@ missing_cover <- check_missingvalue %>%
 
 double <- data_soorten_kenm_cd %>%
   filter(!is.na(Kenmerk)) %>%
-  group_by(ID, recording_givid, Kenmerk, Vegetatielaag) %>%
+  group_by(ID, record_id,  Kenmerk, Vegetatielaag) %>%
   filter(n() > 1)
-  
+ 
+data_soorten_kenm_cd <- data_soorten_kenm_cd %>%
+  group_by(ID, record_id, Kenmerk, Vegetatielaag) %>%
+  filter(Waarde == max(Waarde)) %>%
+  ungroup() %>%
+  unique()
+ 
 ```
 
-10578737_2120_2018-09-27, 10342193_2120_2019-10-15, 3807153_2120_2020-08-24 -> 100% naakte bodem in vierkante plot
-601649_2021-08-17 -> gegevens vegopname ontbreekt want 4 struweelsoorten aanwezig
+De meetpunten 10578737_2120 (2018-09-27), 10342193_2120 (2019-10-15) en 3807153_2120 (2020-08-24) bestaan voor 100% naakte bodem in vierkante plot --> indien geen vegetatie NA voor sleutelsoorten en horizontale structuur. De rekenmodule geeft sowieso NA als vegetatiegegevens ontbreken, ook voor exoten, vergrassing,...
+
+601649_2021-08-17 -> gegevens vegopname ontbreekt want 4 struweelsoorten aanwezig --> plot verwijderen
 
 Soms komen dezelfde soorten meerdere keren voor in vegopname in zelfde laag. Maar dat is dan één keer als kiemplant.
+Dit LSVI-rekenmodule geeft hiervoor een error. We selecteren per meetpunt, soort en vegetatielaag de maximale bedekking.
 
 ## TEST 2120
-
-+ spontane verstuiving: OK als niet 100% gefixeerd
-
-+ belang structuurverstoring --> b WT --> < 1%
-
-+ horizontale structuur: helm aanwezig en open zand aanwezig
-
-+ naakte bodem --> via kartering
-
-+ bedekking mos: bedekking moslaag / (100 - bedekking naakte bodem) * 100
-
-+ wat met 100% naakte bodem?
 
 ```{r}
 
@@ -904,14 +956,13 @@ test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 
 ```
+OK
 
 ## TEST 2130_hd
 
-OK
-
 ```{r}
 
-data_habitat_test_type <- data_habitat_test %>%
+data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2130_hd")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
@@ -921,17 +972,20 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Data_soortenKenmerken = data_soorten_kenm_cd %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
-test$Resultaat_detail %>%
+test_detail <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 
 ```
+
+OK
+
 ## TEST 2130_had
 
 OK
 
 ```{r}
 
-data_habitat_test_type <- data_habitat_test %>%
+data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2130_had")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
@@ -941,18 +995,19 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Data_soortenKenmerken = data_soorten_kenm_cd %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
-test$Resultaat_detail %>%
+test_detail <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 
 ```
+
+OK
+
 ## TEST 2160
 
-+ minstens 2 ontwikkelingsstadia aanwezig: pionier, ontwikkeling, climax, degeneratie
-+ open plek minstens WT: >= 1%
 
 ```{r}
 
-data_habitat_test_type <- data_habitat_test %>%
+data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2160")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
@@ -960,20 +1015,22 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_test_type,
                          Data_soortenKenmerken = data_soorten_kenm_cd %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_cd %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
-test$Resultaat_detail %>%
+test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 
 ```
 
-## TEST 2170
-
 OK
+
+## TEST 2170
 
 ```{r}
 
-data_habitat_test_type <- data_habitat_test %>%
+data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2170")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
@@ -983,22 +1040,16 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Data_soortenKenmerken = data_soorten_kenm_cd %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
-test$Resultaat_detail %>%
+test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 
 ```
 
-
 ## TEST 2180
-
-
-+ enkel indicatoren kruidlaag
-
-+ vegetatielagen indien ingeschat op cirkelplot
 
 ```{r}
 
-data_habitat_test_type <- data_habitat_test %>%
+data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2180")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
@@ -1008,18 +1059,18 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Data_soortenKenmerken = data_soorten_kenm_cd %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
-test$Resultaat_detail %>%
+test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 
 ```
 
-## TEST 2190_mp
+Grondvlak sleutelsoorten geeft steeds 0 als uitkomst, maar moet NA zijn.
 
-OK
+## TEST 2190_mp
 
 ```{r}
 
-data_habitat_test_type <- data_habitat_test %>%
+data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2190_mp")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
@@ -1029,10 +1080,42 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Data_soortenKenmerken = data_soorten_kenm_cd %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
-test$Resultaat_detail %>%
+test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 
 ```
+
+OK
+
+## LSVI-berekening
+
+```{r}
+
+input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/coastal_dunes/input") 
+
+write_vc(data_voorwaarden_cd, file = "data_voorwaarden_cd", root = input_path, 
+         sorting = c("ID", "Voorwaarde"))
+write_vc(data_habitat_cd, file = "data_habitat_cd", root = input_path, 
+         sorting = c("ID", "Habitattype"))
+write_vc(data_soorten_kenm_cd, file = "data_soorten_kenm_cd", root = input_path, 
+         sorting = c("ID", "Vegetatielaag", "Kenmerk"))
+
+lsvi_cd <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_cd,
+                         Data_voorwaarden = data_voorwaarden_cd,
+                         Data_soortenKenmerken = data_soorten_kenm_cd,
+                         na.rm = TRUE)
+
+lsvi_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/gr_bm/result") 
+
+write_lsvi_results(lsvi_gr_bm, path = lsvi_path, suffix = "_gr_bm")
+
+```
+
+
+
 
 # Heath habitat types
 
