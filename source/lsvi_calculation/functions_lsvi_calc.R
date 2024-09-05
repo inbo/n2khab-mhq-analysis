@@ -416,11 +416,16 @@ get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
            Eenheid = "%")
 
   voorwaarde_verstuiving <- get_structure_var(data_path, record_ids) %>%
-    filter(structure_var %in% c("gefixeerd_2120")) %>%
+    filter(structure_var %in% c("gefixeerd_2120",
+                                "sterke verstuiving_2120",
+                                "beperkte verstuiving_2120")) %>%
+    pivot_wider(names_from = structure_var,
+                values_from = cover) %>%
+    mutate(gefixeerd_2120 = ifelse(is.na(gefixeerd_2120), 0, gefixeerd_2120)) %>%
     mutate(Voorwaarde = "spontane verstuiving aanwezig",
            Indicator = "dynamiek",
            Criterium = "Structuur",
-           Waarde = ifelse(cover < 100, 1, 0),
+           Waarde = ifelse(gefixeerd_2120 < 100, 1, 0),
            Type = "Ja/nee") %>%
     rename(record_id = recording_givid)
 
