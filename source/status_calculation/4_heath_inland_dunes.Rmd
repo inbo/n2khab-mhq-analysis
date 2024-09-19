@@ -1,17 +1,17 @@
-# MHQ coastal dunes
+# MHQ Heath and inland dunes
 
 ```{r}
-lsvi_detail <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/coastal_dunes/result"),
-                             file = "lsvi_detail_cd")
+lsvi_detail <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/heath_inland_dunes/result"),
+                             file = "lsvi_detail_hs_id")
 
-lsvi_globaal  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/coastal_dunes/result"),
-                             file = "lsvi_globaal_cd")
+lsvi_globaal  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/heath_inland_dunes/result"),
+                             file = "lsvi_globaal_hs_id")
 
-lsvi_indicator  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/coastal_dunes/result"),
-                             file = "lsvi_indicator_cd")
+lsvi_indicator  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/heath_inland_dunes/result"),
+                             file = "lsvi_indicator_hs_id")
 
-data_habitat  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/coastal_dunes/input"),
-                             file = "data_habitat_cd")
+data_habitat  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/heath_inland_dunes/input"),
+                             file = "data_habitat_hs_id")
 
 data_habitat_cat  <- data_habitat %>%
   mutate(user_reference = str_sub(ID, end = -12)) %>%
@@ -22,7 +22,7 @@ data_habitat_cat  <- data_habitat %>%
 
 ```{r}
 types_cat <- read_types() %>%
-  filter(typeclass %in% c("CD"))
+  filter(typeclass %in% c("ID", "HS"))
 
 mhq_measurements_cat <- mhq_measurements %>%
   semi_join(types_cat, by = "type") %>%
@@ -31,7 +31,7 @@ mhq_measurements_cat <- mhq_measurements %>%
   left_join(data_habitat_cat, by = c("user_reference", "date"))
 
 check_missing_lsvi <- mhq_measurements_cat %>%
-  filter(is.na(id)) #onvolledige opname
+  filter(is.na(id)) # to check
 
 add_point_code <- mhq_refpoints %>%
   select(point_code) %>%
@@ -41,7 +41,7 @@ check_missing_mhq_admin <- data_habitat_cat %>%
   anti_join(mhq_measurements_cat, by = c("user_reference", "date")) %>%
   filter(!str_detect(user_reference, "double|IV")) %>%
   mutate(type = type_analysis) %>%
-  left_join(add_point_code, by = "user_reference")
+  left_join(add_point_code, by = "user_reference") # to check
 
 ```
 
@@ -53,7 +53,7 @@ mhq_su <- mhq_measurements_cat %>%
   filter(type == type_analysis | type == "2190_overig") %>%
   mutate(main_type = str_sub(type, 1, 4)) %>%
   left_join(strata, by = "point_code") %>%
-  group_by(point_code) %>%
+  group_by(point_code, type) %>%
   mutate(paired = n_distinct(date) > 1) %>%
   ungroup()
 
@@ -124,7 +124,7 @@ lsvi_indicator_cat <- lsvi_indicator %>%
 ## Status Vlaanderen
 
 ```{r}
-output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/coastal_dunes/result")
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/result")
 ```
 
 
@@ -161,7 +161,7 @@ colnames(status_flanders_cat_tidy) <- str_to_lower(colnames(status_flanders_cat_
 
 status_flanders_cat_tidy %>%
   write_vc(root = output_path,
-           file = "status_habitat_cd",
+           file = "status_habitat_hs_id",
            sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
            strict = FALSE)
 ```
@@ -261,7 +261,7 @@ colnames(status_indicatoren_cat_tidy) <- str_to_lower(colnames(status_indicatore
 
 status_indicatoren_cat_tidy %>%
   write_vc(root = output_path,
-           file = "status_indicatoren_cd",
+           file = "status_indicatoren_hs_id",
            sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
            strict = FALSE)
 ```
@@ -325,7 +325,7 @@ colnames(trend_flanders_cat) <- str_to_lower(colnames(trend_flanders_cat))
 
 trend_flanders_cat %>%
   write_vc(root = output_path,
-           file = "trend_habitat_cd",
+           file = "trend_habitat_hs_id",
            sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
            strict = FALSE)
 
@@ -356,6 +356,21 @@ remeasured_wide %>%
   ggplot(aes(x = SBZH, fill = trend_local)) +
   geom_bar() +
   facet_wrap(~main_type)
+```
+
+
+```{r}
+trend_flanders_cat %>%
+  mutate(periode = str_c(year_min, "-", year_max)) %>%
+  filter(type_resultaat == "Habitattype") %>%
+  ggplot(aes(x = periode, y = aandeel_gunstig, ymin = aandeel_gunstig_llci, ymax = aandeel_gunstig_ulci, 
+             label = n_obs)) +
+  geom_point() +
+  geom_errorbar(width = 0.1) +
+  geom_hline(yintercept = 75, linetype = 2) +
+  geom_text(hjust = 0, nudge_x = 0.1) +
+  lims(y = c(0,100)) +
+  facet_wrap(~habitattype, scales = "free")
 ```
 
 ### Trend indicatoren gepaarde plots
@@ -395,7 +410,7 @@ colnames(trend_indicator_cat) <- str_to_lower(colnames(trend_indicator_cat))
 
 trend_indicator_cat %>%
   write_vc(root = output_path,
-           file = "trend_indicatoren_cd",
+           file = "trend_indicatoren_hs_id",
            sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
            strict = FALSE)
 ```
@@ -413,9 +428,37 @@ trend_indicator_cat %>%
              shape = periode,
              ymin= aandeel_gunstig_llci, 
              ymax = aandeelgunstig_ulci)) + 
-  geom_point(size = 3, alpha = 0.8) +
-  geom_errorbar(width = 0.2, alpha = 0.8) +
+  geom_point(size = 4, alpha = 0.8) +
+  geom_errorbar(width = 0, alpha = 0.6, linewidth = 2) +
   facet_grid(criterium ~ habitattype, scales = "free_y") + 
+  coord_flip() +
+  labs(x = "Indicator",
+       y = "Aandeel habitat met gunstige staat voor indicator") + 
+  geom_hline(aes(yintercept = 75), 
+             colour = "black", 
+             size = 0.5, 
+             linetype = "dashed", 
+             alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom", 
+        strip.text = element_text(size =12), 
+        axis.text = element_text(size =12)) +
+  scale_y_continuous(breaks=c(0 , 50,  100), 
+                     limits = c(0,100))
+
+```
+```{r figuurAandeelGunstigIndicator2, fig.height= 6, fig.width= 10}
+
+trend_indicator_cat %>%
+  filter(type_resultaat == "Habitattype") %>%
+  mutate(indicator_short = str_c(indicator, " (", belang, ")")) %>%
+  ggplot(aes(x = periode, 
+             y= aandeel_gunstig, 
+             ymin= aandeel_gunstig_llci, 
+             ymax = aandeelgunstig_ulci)) + 
+  geom_point() +
+  geom_errorbar(width = 0.2) +
+  facet_grid(indicator ~ habitattype, scales = "free") + 
   coord_flip() +
   labs(x = "Indicator",
        y = "Aandeel habitat met gunstige staat voor indicator") + 
