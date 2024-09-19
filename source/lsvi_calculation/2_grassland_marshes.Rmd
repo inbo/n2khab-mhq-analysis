@@ -1,0 +1,564 @@
+
+# Grasland and marsh habitats
+
+```{r}
+
+schemes_gr_bm <- mhq_schemes %>%
+  filter(typeclass %in% c("GR", "BMF", "CH")) %>%
+  filter(type != "1330_da")
+
+```
+
+```{r}
+schemes_gr_bm %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+  
+```
+
+```{r}
+overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
+                            Habitattype = as.character(schemes_gr_bm$type),
+                            Versie = "Versie 3") 
+```
+
+
+```{r}
+overzicht_lsvi %>%
+  distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde) %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+## Invoergegevens
+
+```{r}
+
+data_habitat_gr_bm <- data_habitat %>%
+  mutate(is_type_target = type_observed %in% schemes_gr_bm$type,
+         is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(schemes_gr_bm$type, 1, 4)) %>%
+  group_by(ID) %>%
+  mutate(any_type_target = any(is_type_target),
+         n_type_target = sum(is_type_target),
+         cover_target = sum(type_cover * is_type_target),
+         Habitattype = ifelse(type_observed == "6410", "6410_mo",
+                              type_observed)) %>%
+  ungroup() %>%
+  filter(is_maintype_target) %>%
+  filter(!type_observed %in% c("1330_da", "1330_pol"))
+
+check <- data_habitat_gr_bm %>%
+  group_by(ID) %>%
+  filter(n() > 1)
+
+voorwaarden_circle <- get_voorwaarden_gr_bm(data_path_inboveg = path_mhq_terr,
+                                            data_path_fieldmap = path_mhq_anb,
+                                            data_path_extravar = path_mhq_terr_raw,
+              record_ids = c(data_habitat_gr_bm$record_id_circle)) %>%
+  filter(Indicator %in% c("verbossing", "structuurschade", "microreliëf", "strooisellaag")) %>%
+  mutate(plot_type = "circle")
+
+voorwaarden_square <- get_voorwaarden_gr_bm(data_path_inboveg = path_mhq_terr,
+                                            data_path_fieldmap = path_mhq_anb,
+                                            data_path_extravar = path_mhq_terr_raw,
+              record_ids = data_habitat_gr_bm$record_id_square) %>%
+  filter(Indicator %in% c("strooisellaag")) %>%
+  mutate(plot_type = "square")
+
+data_voorwaarden_gr_bm <- voorwaarden_circle %>%
+  bind_rows(voorwaarden_square)
+
+check <- data_voorwaarden_gr_bm %>%
+  group_by(ID, plot_type, Voorwaarde) %>%
+  filter(n() > 1)
+
+data_soorten_kenm_gr_bm <- get_soorten_kenmerken(data_path_inboveg = path_mhq_terr,
+                                            data_path_fieldmap = path_mhq_anb,
+                          record_ids = data_habitat_gr_bm$record_id_square)  %>%
+                           mutate(Kenmerk = ifelse(str_detect(Kenmerk, "Taraxacum Wiggers"),
+                                                              "Taraxacum", Kenmerk),
+                                  Kenmerk = ifelse(str_detect(Kenmerk, "Sphagnum magellanicum"),
+                                                              "Sphagnum magellanicum Brid. s.l.", Kenmerk),
+                                  Kenmerk = ifelse(str_detect(Kenmerk, "Warnstorfia fluitans"),
+                                                              "Warnstorfia", Kenmerk),
+                                  Kenmerk = ifelse(str_detect(Kenmerk, "Drepanocladus aduncus"),
+                                                              "Drepanocladus", Kenmerk))
+
+check <- data_soorten_kenm_gr_bm %>%
+  group_by(ID, Kenmerk, Waarde, Vegetatielaag) %>%
+  filter(n() > 1)
+```
+
+## Volledigheid van de invoergegevens
+
+### Specificatie Habitatsubtype
+
++ 6410: we veronderstellen 6410_mo (lsvi berekening is identiek aan 6410_ve)
++ 6510: we berekenen lsvi voor elk subtype 
+
+```{r}
+
+subtypes_6510 <- types %>%
+  filter(main_type == "6510") %>%
+  filter(typelevel == "subtype") %>%
+  select(type_observed = main_type, Habitattype = type) 
+
+data_habitat_6510 <- data_habitat_gr_bm %>%
+  filter(type_observed == "6510") %>%
+  select(-Habitattype) %>%
+  left_join(subtypes_6510, by = "type_observed")
+
+data_habitat_gr_bm <- data_habitat_gr_bm %>%
+  anti_join(data_habitat_6510, by = "ID") %>%
+  bind_rows(data_habitat_6510)
+```
+
+### Voorwaarden
+
++ Structuurschade 
++ Verbossing
++ Strooisellaag
++ Microreliëf
+
+```{r}
+voorwaarden_grl_bm <- overzicht_lsvi %>%
+  filter(Indicator %in% c("structuurschade", "verbossing", "strooisellaag", "microreliëf")) %>%
+  select(Habitatsubtype, Criterium, Indicator, Voorwaarde) 
+
+indicator_plot_type <- data_voorwaarden_gr_bm %>%
+  distinct(Indicator, plot_type)
+
+check_voorwaarden <- data_habitat_gr_bm %>%
+  rename(Habitatsubtype = Habitattype) %>%
+  left_join(voorwaarden_grl_bm, by = "Habitatsubtype") %>%
+  left_join(indicator_plot_type, by = "Indicator") %>%
+  left_join(data_voorwaarden_gr_bm, by = c("ID", "Criterium", "Indicator", "Voorwaarde", "plot_type")) %>%
+  filter(!is.na(Voorwaarde))
+  
+voorwaarden_waarde_missing <- check_voorwaarden %>%
+  filter(is.na(Waarde)) %>%
+  filter(Indicator != "strooisellaag") %>%
+  select(record_id_square, record_id_circle, ID, date, type_observed, Indicator, Waarde)
+
+check_strooisellaag <- check_voorwaarden %>%
+  filter(Indicator == "strooisellaag") %>%
+  distinct(survey, record_id_square, record_id_circle,  date, ID, plot_type, Indicator, Waarde) %>%
+  pivot_wider(names_from = "plot_type",
+              names_prefix = "cover_",
+              values_from = "Waarde") %>%
+  mutate(diff_status = (cover_circle <= 10) != (cover_square <= 10))
+
+overzicht_strooisellaag <- check_strooisellaag %>%
+  group_by(diff_status) %>%
+  summarise(n = n()) %>%
+  ungroup()
+
+voorwaarden_waarde_missing %>%
+  write_csv2("../../output/structuurschade_verbossing_missing.csv")
+
+check_strooisellaag %>%
+  write_csv2("../../output/strooisellaag_missing.csv")
+```
+
+Srooisellaag wordt vanaf 2022 uitsluitend in de vierkante plot bepaalt. 
+We selecteren dus de waarde voor strooisellaag uit de vierkante plot.
+
+Na controle: ontbrekende waarden = 0 indien er een opname in inboveg zit.
+
+```{r}
+data_voorwaarden_gr_bm <- check_voorwaarden %>%
+  filter(!(plot_type == "circle" & Indicator == "strooisellaag")) %>%
+  mutate(Waarde = ifelse(Indicator == "strooisellaag",
+                         ifelse(is.na(Waarde) & !is.na(record_id_square), 0, Waarde),
+                         ifelse(is.na(Waarde) & !is.na(record_id_circle), 0, Waarde)),
+         Type = "Percentage",
+         Eenheid = "%",
+         record_id = ifelse(plot_type == "square",
+                                  record_id_square,
+                                  record_id_circle)) %>%
+  select(ID, record_id, plot_type, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
+  unique()
+
+```
+
+### Vegetatiegegevens
+
+```{r}
+check_missingveg <- data_habitat_gr_bm  %>%
+  rename(record_id = record_id_square) %>%
+  anti_join(data_soorten_kenm_gr_bm, by = c("record_id"))
+
+check_missingvalue <- data_habitat_gr_bm  %>%
+  rename(record_id = record_id_square) %>%
+  left_join(data_soorten_kenm_gr_bm, by = c("record_id", "ID"))
+
+missing_kenmerk <- check_missingvalue %>%
+  filter(is.na(Kenmerk))
+
+missing_kenmerk %>%
+  select(record_id, ID, Habitattype, Vegetatielaag, Kenmerk, Waarde) %>%
+  write_csv2("../../output/check_vegopname.csv")
+
+missing_cover <- check_missingvalue %>%
+  filter(is.na(Waarde))
+
+double <- data_soorten_kenm_gr_bm %>%
+  group_by(ID, record_id, Kenmerk, Vegetatielaag) %>%
+  filter(n() > 1)
+
+data_soorten_kenm_gr_bm <- data_soorten_kenm_gr_bm %>%
+  filter(!is.na(Kenmerk),
+         !is.na(Waarde))
+  
+```
+Ontbrekende soortnamen meestal mos spec.
+
+### Uittesten LSVI-berkening en beoordeling van impact van warning op LSVI-berekening
+
+#### TEST 1330_hpr
+
+OK
+
+```{r, eval = FALSE}
+data_habitat_test <- data_habitat_gr_bm %>%
+  group_by(Habitattype) %>%
+  slice_head(n = 1) %>%
+  ungroup() %>%
+  filter(Habitattype != "1330_da")
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "1330_hpr") 
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Drepanocladus aduncus (Hedw.) Warnst..  Check de spelling en/of laat de auteursnaam weg bij genera.
+Warning in berekenLSVIbasis(Versie = "Versie 3", Kwaliteitsniveau = 1, Data_habitat = data_habitat_test_type,  :
+  De waarde(n) voor de voorwaarde(n) differentiatie in zout- en tredplanten (VoorwaardeID 2152) kunnen niet berekend worden voor opname(n) 908981_2016-09-15, 455349_2015-08-03, 996353_2015-08-24, 472065_2015-08-24, 1117877_2015-08-20, 736949_2015-08-12, 212661_2015-08-13, 801793_2015-08-19, 540341_2015-08-14, 437685_2015-08-06, 37557_2015-08-11, 798133_2015-08-11, 695297_2015-08-19, 1348277_2017-09-29, 299701_2017-09-29, 1403657_2017-09-29, 1785525_2018-07-04, 1830581_2018-07-04, 1928193_2018-06-29, 1872565_2018-06-28, 1715637_2018-06-28, 1936821_2018-06-28, 1945013_2018-06-28, 1667357_2018-06-14, 1750129_2018-06-29, 1547265_2018-06-29, 1461001_2018-06-14, 2239241_1330_hpr_2019-10-29, 1498805_1330_hpr_2019-10-29, 1594037_1330_hpr_2019-10-29, 2364085_1330_hpr_2019-10-29, 2143233_1330_hpr_2019-10-17, 2333697_1330_hpr_2019-10-31, 2805181_2020-10-15, 3067325_2020-10-15, 2018749_2020-10-15, 2936253_2020-10-15, 3492617_2020-08-07, 2595841_2020-08-18, 3062785_2020-08-18, 3054593_2020-08-18, 165 [... truncated]
+
+--> mossoort niet herkend --> geen impact op LSVI
+
+#### TEST 6230_ha
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6230_ha")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test_resultaat_detail <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+
+geen warnings
+
+#### TEST 6230_hmo
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6230_hmo")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+geen warnings
+
+#### TEST 6230_hn
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6230_hn")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+geen warnings
+
+#### TEST 6230_hnk
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6230_hnk")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+geen warnings
+
+#### TEST 6410_mo
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6410_mo")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+geen warnings
+
+#### TEST 6410_ve
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_test %>%
+  filter(Habitattype == "6410_ve")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type[1,],
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+geen warnings
+
+#### TEST 6510_hu
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "6510_hu")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Taraxacum Wiggers sectie Subvulgaria Christians., Dicranella species.  Check de spelling en/of laat de auteursnaam weg bij genera.
+
+--> naam "Taraxacum Wiggers sectie Subvulgaria Christians." veranderen naar "Taraxacum"
+
+#### TEST 6510_huk
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "6510_huk")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+geen warnings
+
+#### TEST 6510_hus
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "6510_hus")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test_detail <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Criterium, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+geen warnings
+
+#### TEST 6510_hua
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "6510_hua")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+
+geen warnings
+
+#### TEST 7140_oli
+
+belang 'veenmossen' ontbreekt --> moet zb zijn
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "7140_oli")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Sphagnum magellanicum Brid..  Check de spelling en/of laat de auteursnaam weg bij genera.
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Voor opname 1465330_2020-09-24 zijn in de kruidlaag de synoniemen 'Betula alba L.' en 'Betula pendula Roth' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 1470454_2021-08-18 zijn in de kruidlaag de synoniemen 'Betula alba L.' en 'Betula pendula Roth' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 1470454_2021-08-18 zijn in de struiklaag de synoniemen 'Betula alba L.' en 'Betula pendula Roth' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 170798_2023-10-16 zijn in de kruidlaag de synoniemen 'Betula alba L.' en 'Betula pendula Roth' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
+
+naam "Sphagnum magellanicum Brid." veranderen in "Sphagnum magellanicum Brid. s. l." 
+
+#### TEST 7140_meso
+
+```{r, eval = FALSE}
+
+data_habitat_test_type <- data_habitat_gr_bm %>%
+  filter(Habitattype == "7140_meso")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_voorwaarden = data_voorwaarden_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test_detail <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+
+```
+Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
+  Volgende soortnamen zijn niet teruggevonden in de databank: Warnstorfia fluitans (Hedw.) Loeske, Drepanocladus aduncus (Hedw.) Warnst..  Check de spelling en/of laat de auteursnaam weg bij genera.
+
+--> Warnstorfia fluitans (Hedw.) Loeske veranderen naar Warnstorfia --> OK
+--> Drepanocladus aduncus (Hedw.) Warnst. veranderen naar Drepanocladus --> OK
+
+### LSVI-berekening
+
+```{r}
+
+input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/gr_bm/input") 
+
+write_vc(data_voorwaarden_gr_bm, file = "data_voorwaarden_gr_bm", root = input_path, 
+         sorting = c("ID", "Voorwaarde"))
+write_vc(data_habitat_gr_bm, file = "data_habitat_gr_bm", root = input_path, 
+         sorting = c("ID", "Habitattype"))
+write_vc(data_soorten_kenm_gr_bm, file = "data_soorten_kenm_gr_bm", root = input_path, 
+         sorting = c("ID", "Vegetatielaag", "Kenmerk"))
+
+lsvi_gr_bm <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_gr_bm,
+                         Data_voorwaarden = data_voorwaarden_gr_bm,
+                         Data_soortenKenmerken = data_soorten_kenm_gr_bm,
+                         na.rm = TRUE)
+
+lsvi_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/gr_bm/result") 
+
+write_lsvi_results(lsvi_gr_bm, path = lsvi_path, suffix = "_gr_bm")
+
+```
+
+```{r}
+lsvi_gr_bm_globaal %>%
+  ggplot(aes(fill = Status, x = Habitattype)) +
+  geom_bar() +
+  coord_flip()
+```
+

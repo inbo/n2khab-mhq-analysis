@@ -421,11 +421,13 @@ get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
                                 "beperkte verstuiving_2120")) %>%
     pivot_wider(names_from = structure_var,
                 values_from = cover) %>%
-    mutate(gefixeerd_2120 = ifelse(is.na(gefixeerd_2120), 0, gefixeerd_2120)) %>%
+    mutate(gefixeerd_2120 = ifelse(is.na(gefixeerd_2120), 0, gefixeerd_2120),
+           `sterke verstuiving_2120` =  ifelse(is.na(`sterke verstuiving_2120`), 0, `sterke verstuiving_2120`),
+           `beperkte verstuiving_2120` =  ifelse(is.na(`beperkte verstuiving_2120`), 0, `beperkte verstuiving_2120`)) %>%
     mutate(Voorwaarde = "spontane verstuiving aanwezig",
            Indicator = "dynamiek",
            Criterium = "Structuur",
-           Waarde = ifelse(gefixeerd_2120 < 100, 1, 0),
+           Waarde = ifelse(`sterke verstuiving_2120` > 0 | `beperkte verstuiving_2120` >= 30, 1, 0),
            Type = "Ja/nee") %>%
     rename(record_id = recording_givid)
 
@@ -663,7 +665,7 @@ write_lsvi_results <- function(lsvi_object, path, suffix = "") {
 
   colnames(lsvi_globaal) <- str_to_lower(colnames(lsvi_globaal))
 
-  write_vc(lsvi_globaal, file = str_c("lsvi_globaal", suffix), root = path,
+  write_vc(lsvi_globaal, file = str_c("lsvi_globaal", suffix), root = path, strict = FALSE,
            sorting = c("id", "type_analysis"))
 }
 

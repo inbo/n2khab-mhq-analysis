@@ -1,0 +1,120 @@
+# Overview of MHQ schemes
+
+```{r}
+
+types <- read_types()
+
+schemes <- read_schemes()
+
+scheme_types <- read_scheme_types()
+
+mhq_schemes <- schemes %>%
+  filter(programme == "MHQ") %>%
+  select(programme, scheme) %>%
+  left_join(select(scheme_types, scheme, type), by = "scheme") %>%
+  left_join(select(types, type, typeclass), by = "type")
+```
+
+```{r}
+mhq_schemes %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+
+# Raw data
+
+## INBOVEG data
+
+```{r}
+path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_terr")
+
+path_mhq_terr_raw <- file.path(fileman_up("n2khab-mhq-data"), "raw/structure_variables")
+
+classif_mhq_inbo <- get_type_inboveg(path_mhq_terr)
+
+header_mhq_inbo <- get_header(path_mhq_terr)
+
+```
+
+## Fieldmap data
+
+```{r}
+
+path_mhq_anb <- file.path(fileman_up("n2khab-mhq-data"), "processed/fieldmap_mhq")
+
+classif_mhq_anb <- read_vc(root = path_mhq_anb, file = "type_observed")
+structure_mhq_anb <- read_vc(root = path_mhq_anb, file = "structure_vars")
+vegetation_mhq_anb <- read_vc(root = path_mhq_anb, file = "cover_species")
+veglayers_mhq_anb <- get_cover_veglayers_fieldmap(path_mhq_anb)
+
+pq_mhq_anb <- classif_mhq_anb %>%
+  distinct(date_assessment, plot_id) %>%
+  semi_join(vegetation_mhq_anb, by = c("plot_id", "date_assessment"))
+```
+
+## Merge ANB and INBO data
+
+```{r}
+
+pq_mhq_inbo <- header_mhq_inbo %>%
+  filter(!survey %in% c("Schelde-estuarium", "N2000meetnet_Bos_91E0_sf")) %>%
+  mutate(plot_type = ifelse(area == 9, "square",
+                            ifelse(area > 1000, "circle", NA)),
+         date = as.Date(vague_date_begin)) %>%
+  select(survey, date, record_id, user_reference, plot_type)
+
+pq_mhq_inbo_wide <- pq_mhq_inbo %>%
+  filter(!is.na(plot_type)) %>%
+  pivot_wider(names_from = "plot_type", values_from = "record_id", names_prefix = "record_id_") %>%
+  mutate(ID = str_c(user_reference, "_", date))
+
+classif_mhq_inbo <- classif_mhq_inbo %>%
+  filter(!survey %in% c("Schelde-estuarium", "N2000meetnet_Bos_91E0_sf")) %>%
+  left_join(select(pq_mhq_inbo, record_id, plot_type), by = "record_id") %>%
+  filter(plot_type == "square") %>%
+  rename(record_id_square = record_id) %>%
+  left_join(pq_mhq_inbo_wide, by = c("survey", "record_id_square"))
+
+pq_mhq_anb <- pq_mhq_anb %>%
+  mutate(ID = str_c(plot_id, "_", date_assessment),
+         survey = "anb") %>%
+  select(survey, date = date_assessment, ID) %>%
+  mutate(record_id_square = ID,
+         record_id_circle = ID)
+  
+classif_mhq_anb <- classif_mhq_anb %>%
+  filter(segment_id == 1) %>%
+  mutate(type_observed = ifelse(!is.na(type_observed_square), type_observed_square, type_observed_circle),
+         ID = str_c(plot_id, "_", date_assessment),
+         plot_type = "square",
+         survey = "anb") %>%
+  select(ID, survey, type_observed, plot_type) %>%
+  inner_join(pq_mhq_anb, by = c("survey", "ID"))
+
+type_info <- types %>%
+  group_by(main_type) %>%
+  mutate(has_subtypes = any(typelevel == "subtype")) %>%
+  ungroup() %>%
+  select(type_observed = type, typelevel, has_subtypes)
+
+classif_mhq <- classif_mhq_inbo %>%
+  bind_rows(classif_mhq_anb) %>%
+  select(survey, ID, record_id_square, record_id_circle, date, type_observed, plot_type, type_cover) %>%
+  left_join(type_info, by = "type_observed") %>%
+  mutate(is_type_target = type_observed %in% mhq_schemes$type,
+         is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(mhq_schemes$type, 1, 4),
+         subtype_defined = !(has_subtypes & typelevel == "main_type")) %>%
+  group_by(ID) %>%
+  mutate(any_type_target = any(is_type_target),
+         n_type_target = sum(is_type_target),
+         cover_target = sum(type_cover * is_type_target),
+         type_cover_all = str_c(str_c(type_cover, "% ", type_observed), collapse = "; ")) %>%
+  ungroup() %>%
+  filter(is_maintype_target)
+
+data_habitat <- classif_mhq %>%
+  select(ID, survey, record_id_square, record_id_circle, date, type_observed, subtype_defined, type_cover, type_cover_all)
+  
+```
+

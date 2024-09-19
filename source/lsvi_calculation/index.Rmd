@@ -1,0 +1,42 @@
+---
+title: "LSVI calculation"
+author: 
+  -
+    name: "Toon Westra"
+    email: "Toon.Westra@inbo.be"
+  -
+link-citations: TRUE
+site: bookdown::bookdown_site
+output:
+  bookdown::html_document2:
+    keep_md: TRUE
+    toc: TRUE
+    toc_depth: 2
+    toc_float:
+      collapsed: FALSE
+      smooth_scroll: FALSE
+    number_sections: TRUE
+    split_by: "chapter+number"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(git2rdata)
+library(n2khab)
+library(n2khabmon)
+library(sf)
+library(leaflet)
+library(DT)
+library(units)
+library(kableExtra)
+library(LSVI)
+
+options(dplyr.summarise.inform = FALSE)
+
+source("../functions_lsvi_calc.R")
+maakConnectiePool()
+```
+

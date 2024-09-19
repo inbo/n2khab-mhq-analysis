@@ -1,0 +1,65 @@
+# Preprocessing
+
+## Admin data
+
+```{r}
+path_lsvi <- file.path(fileman_up("n2khab-mhq-data"), "processed")
+
+path_admin <- file.path(fileman_up("n2khab-sample-admin"), "data")
+
+mhq_measurements <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
+                             file = "mhq_terr_measurements")
+
+mhq_assessments <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
+                             file = "mhq_terr_assessments")
+
+mhq_refpoints <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
+                             file = "mhq_terr_refpoints")
+```
+
+## Strata
+
+```{r}
+sac <- read_admin_areas(dsn = "sac") %>%
+  select(sac_code)
+
+strata <- mhq_refpoints %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370) %>%
+  st_join(sac) %>%
+  mutate(in_sac = !is.na(sac_code)) %>%
+  select(point_code, sac_code, in_sac) %>%
+  st_drop_geometry()
+  
+```
+
+## Weights
+
+```{r}
+habmap_stdized_terr <- read_habitatmap_terr()
+
+habmap_area_sac <- habmap_stdized_terr$habitatmap_terr_polygons %>%
+  st_intersection(sac) %>%
+  mutate(area_in_sac = drop_units(st_area(geom))) %>%
+  st_drop_geometry() %>%
+  select(polygon_id, area_in_sac)
+  
+polygons_area <- habmap_stdized_terr$habitatmap_terr_polygons %>%
+  mutate(area_tot = drop_units(st_area(geom))) %>%
+  st_drop_geometry() %>%
+  select(polygon_id, area_tot) %>%
+  left_join(habmap_area_sac, by = "polygon_id") %>%
+  mutate(area_in_sac = ifelse(is.na(area_in_sac), 0, area_in_sac),
+         area_out_sac = area_tot - area_in_sac) %>%
+  pivot_longer(c("area_in_sac", "area_out_sac"), names_to = "sac", values_to = "area") %>%
+  mutate(in_sac = sac == "area_in_sac",
+         area = round(area, 3))
+
+type_area <- habmap_stdized_terr$habitatmap_terr_types %>%
+  left_join(polygons_area, by = "polygon_id") %>%
+  group_by(type, in_sac) %>%
+  summarise(area_ha = round(sum(area * phab/100) / 10000, 5)) %>%
+  ungroup()
+
+
+```
+
