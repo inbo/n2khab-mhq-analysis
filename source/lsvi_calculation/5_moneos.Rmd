@@ -1,0 +1,485 @@
+# Moneos habitat types
+
+```{r}
+
+schemes_moneos <- mhq_schemes %>%
+  filter(type %in% c("91E0_sf", "1330_da")) 
+
+```
+
+```{r}
+overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
+                            Habitattype = as.character(schemes_moneos$type),
+                            Versie = "Versie 3") %>%
+  distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde, Beoordeling, Eenheid, TypeVariabele)
+
+```
+
+```{r}
+overzicht_lsvi %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+
+## Invoergegevens
+
+```{r}
+
+data_habitat_moneos <- data_habitat %>%
+  mutate(is_type_target = type_observed %in% schemes_moneos$type,
+         is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(schemes_moneos$type, 1, 4)) %>%
+  group_by(ID) %>%
+  mutate(any_type_target = any(is_type_target),
+         n_type_target = sum(is_type_target),
+         cover_target = sum(type_cover * is_type_target),
+         Habitattype = type_observed) %>%
+  ungroup() %>%
+  filter(is_type_target)
+
+overview <- data_habitat_moneos %>%
+  group_by(year(date), type_observed) %>%
+  summarise(n = n()) %>%
+  ungroup()
+
+data_voorwaarden_91E0_sf <- get_voorwaarden_91E0_sf(data_path = path_mhq_terr,
+                                          record_ids = data_habitat_moneos$record_id_square)
+
+data_voorwaarden_1330_da <- get_voorwaarden_1330_da(data_path = path_mhq_terr)
+
+data_voorwaarden_moneos <- data_voorwaarden_91E0_sf %>%
+  bind_rows(data_voorwaarden_1330_da)
+
+data_soorten_kenm_moneos <- get_soorten_kenmerken_moneos(data_path = path_mhq_terr,
+                                          record_ids = data_habitat_moneos$record_id_square)
+
+```
+
+## Berekening voorwaarden
+
+### Buitendijkse schorren (1330_da)
+
+De structuurvariabelen zitten niet in INBOVEG en werden aangeleverd als afzonderlijk Excel-bestand.
+Voor de buitendijkse schorren (1330_da) gaat het om de onderstaande voorwaarden:
+
+* zowel lage als hoge schorvegetaties aanwezig,
+* aanwezigheid kreken, oeverwallen en kommen,
+* bedekking riet,
+* schorklifvegetaties aanwezig,
+* aanwezigheid schorklif/breuksteenbestorting,
+* habitattype lager dan het klif,
+* intertidale ruimte ter hoogte van gemiddelde hoogwaterstand (GHW) aanwezig.
+
+Deze voorwaarden werden bepaald op het niveau van een schor.
+Dit betekent dat alle meetpunten die binnen een zelfde schor gelegen zijn, dezelfde waarde voor deze voorwaarden hebben.
+De waarden van deze voorwaarden worden rechtstreeks ingevoerd in de LSVI-rekenmodule.
+
+De volgende variabele kon niet bepaald worden en wordt daarom niet meegerekend in de verdere analyse:
+
+* structuurvariatie binnen de verschillende zones aanwezig.
+
+### Wilgenvloedbossen (91E0_sf)
+
+Voor habitat 91E0_sf gaat het om de onderstaande voorwaarden:
+
+* aantal exemplaren dik dood hout per ha,
+* aandeel dood hout,
+* grondvlak sleutelsoorten boom- en struiklaag.
+
+Deze voorwaarden worden rechtstreeks op het terrein ingeschat en dus niet afgeleid uit een dendrometrische opname zoals bij de overige boshabitats (zie Hoofdstuk \@ref(h:Boshabitats)). De waarden worden rechtstreeks ingevoerd in de LSVI-rekenmodule. 
+
+De voorwaarden 'aantal groeiklassen aanwezig' en 'groeiklasse 5, 6 of 7 aanwezig' wordt afgeleid uit de genoteerde bedekking per groeiklasse.
+
+De volgende voorwaarde kon niet bepaald worden en wordt daarom niet meegerekend in de verdere analyse:
+
+* aandeel overstromende vloeden.
+
+Voorwaarde bosconstantie: gunstig indien bosleeftijd > 30 jaar.
+Hoe bepalen?
+
+Miniumum structuurareaal. 
+
+```{r}
+
+coordinates_91E0_sf <- coordinates_91E0_sf %>%
+  filter(str_detect(plot_pl, "a")) %>%
+  select(plot_id, x, y)
+
+data_habitat_91E0_sf <- data_habitat_moneos %>%
+  filter(type_observed == "91E0_sf") %>%
+  select(ID, record_id_square, plot_id, date, type_observed) %>%
+  left_join(coordinates_91E0_sf, by = "plot_id")
+
+data_path_extravar <- file.path(fileman_up("n2khab-mhq-data"), "/raw")
+
+plot_coord <- data_habitat_91E0_sf %>%
+    filter(!is.na(x)) %>%
+    st_as_sf(coords = c("x", "y"), crs = 31370)
+
+
+```
+
+
+### Voorwaarden berekend door rekenmodule
+
+```{r}
+voorwaarden_module <- overzicht_lsvi %>%
+  select(Habitatsubtype, Indicator, Voorwaarde) %>%
+  mutate(rekenmodule = !Voorwaarde %in% data_voorwaarden_moneos$Voorwaarde)
+```
+
+Volgende voorwaarden worden door de rekenmodule berekend
+
+```{r}
+voorwaarden_module %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+## Volledigheid van de invoergegevens
+
+### Voorwaarden
+
+```{r}
+voorwaarden_moneos  <- overzicht_lsvi %>%
+  semi_join(data_voorwaarden_moneos , by = "Voorwaarde") %>%
+  select(Habitatsubtype, Criterium, Indicator, Voorwaarde, Eenheid, Type = TypeVariabele) 
+
+check <- voorwaarden_moneos %>%
+  distinct(Indicator, Voorwaarde)
+
+check_voorwaarden <- data_habitat_moneos  %>%
+  rename(Habitatsubtype = Habitattype) %>%
+  left_join(voorwaarden_moneos , by = "Habitatsubtype") %>%
+  left_join(select(data_voorwaarden_moneos, -Eenheid, -Type), by = c("ID", "Criterium", "Indicator", "Voorwaarde")) %>%
+  filter(!is.na(Voorwaarde)) %>%
+  group_by(ID) %>%
+  mutate(all_missing = all(is.na(Waarde))) %>%
+  ungroup()
+
+voorwaarden_record_missing <- check_voorwaarden %>%
+  filter(is.na(record_id)) %>%
+  select(ID, record_id_square, record_id_circle, date, Habitatsubtype, Indicator, Voorwaarde, Waarde)
+
+plots_all_missing <- check_voorwaarden %>%
+  filter(all_missing)
+
+```
+
+Bij plot '1338805_2018-06-28' (1330_da) ontbreken alle structuurvariabelen. 
+De target habitat van deze plot was 1330_hpr.
+Deze plot laten we weg uit de analyse.
+
+Bij 91E0_sf zijn er een aantal meetpunten waar de voorwaarde 'aantal exemplaren dik dood hout per ha' niet werd bepaald.
+We veronderstellen hiervoor een nulwaarnemingen. 
+
+```{r}
+
+data_voorwaarden_moneos <- check_voorwaarden %>%
+  filter(!all_missing) %>%
+  mutate(Waarde = ifelse(is.na(Waarde), 0, Waarde)) %>%
+  select(ID, record_id, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
+  unique() 
+
+data_habitat_moneos <- data_habitat_moneos %>%
+  anti_join(plots_all_missing, by = "ID")
+
+data_soorten_kenm_moneos <- data_soorten_kenm_moneos %>%
+    anti_join(plots_all_missing, by = "ID")
+```
+
+### Vegetatiegegevens
+
+```{r}
+check_missingveg <- data_habitat_moneos  %>%
+  rename(record_id = record_id_square) %>%
+  anti_join(data_soorten_kenm_moneos, by = c("record_id"))
+
+check_missingvalue <- data_habitat_moneos  %>%
+  rename(record_id = record_id_square) %>%
+  left_join(data_soorten_kenm_moneos, by = c("record_id", "ID"))
+
+missing_kenmerk <- check_missingvalue %>%
+  filter(is.na(Kenmerk))
+
+missing_cover <- check_missingvalue %>%
+  filter(is.na(Waarde))
+
+missing_cover_plot <- check_missingvalue %>%
+  filter(!is.na(Vegetatielaag)) %>%
+  group_by(ID,survey, date, type_observed, Vegetatielaag) %>%
+  summarise(any_missing_cover = any(is.na(Waarde)),
+            all_missing_cover = all(is.na(Waarde)),
+            prop_missing = sum(is.na(Waarde) / n()),
+            n_species = n(),
+            n_missing = sum(is.na(Waarde))) %>%
+  ungroup() %>%
+  filter(any_missing_cover)
+
+double <- data_soorten_kenm_moneos %>%
+  filter(!is.na(Kenmerk)) %>%
+  group_by(ID, record_id, Kenmerk, Vegetatielaag) %>%
+  filter(n() > 1)
+  
+data_soorten_kenm_moneos <- data_soorten_kenm_moneos %>%
+  filter(!is.na(Kenmerk))
+
+```
+
+Een 10-tal metingen voor 1330_da bevatten geen vegetatie.
+
+```{r}
+missing_cover %>%
+  select(ID, survey, record_id, date) %>%
+  arrange(ID) %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+Volgende soorten worden zowel in de vierkante als de cirkelplot bepaald:
+
++ Caltha palustris (dotterbloem)
++ Cardamine amara (bitter veldkers)
+
+De rekenmodule geeft een foutmelding als er in eenzelfde opname en vegetatielaag meerdere bedekkingen zijn van dezelfde soort.
+Indien een van bovenstaande soorten in beide proefvlakken aanwezig is, selecteren we daarom de maximum bedekking.
+
+```{r}
+dubbele_bedekking <- data_soorten_kenm_moneos %>%
+  filter(str_detect(Kenmerk, "Caltha palustris|Cardamine amara")) %>%
+  group_by(ID, record_id) %>%
+  mutate(n_dotterbloem = sum(str_detect(Kenmerk, "Caltha palustris")) > 1,
+         n_bittereveldkers = sum(str_detect(Kenmerk, "Cardamine amara")) > 1) %>%
+    ungroup()
+
+data_soorten_kenm_moneos <- data_soorten_kenm_moneos %>%
+  mutate(Kenmerk = ifelse(Kenmerk == "Cardamine amara", "Cardamine amara L.", Kenmerk)) %>%
+  group_by(ID, record_id, Vegetatielaag, Kenmerk, TypeKenmerk, Type, Eenheid, Invoertype) %>%
+  filter(Waarde == max(Waarde)) %>%
+  ungroup() %>%
+  unique() 
+
+sleutelsoorten_91E0_sf <- geefSoortenlijstVoorIDs(Taxongroeplijst = "72")
+```
+
+Enkel 'Caltha palustris var. araneosa' (spindotterbloem) wordt door de rekenmodule als sleutelsoort meegerekend en dus niet 'Caltha palustris' 'Caltha palustris' wordt enkel in de cirkelplot waargenomen.
+Om welke variëtetit gaat het?
+
+## TEST 91E0_sf
+
+```{r}
+data_habitat_test_type <- data_habitat_moneos %>%
+  filter(Habitattype == "91E0_sf") 
+
+data_soorten_kenm_test <- data_soorten_kenm_moneos %>%
+                           semi_join(data_habitat_test_type, by = "ID")
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_test,
+                         Data_voorwaarden = data_voorwaarden_moneos %>%
+                           semi_join(data_habitat_test_type, by = "ID") )
+
+test <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+
+## TEST 1330_da
+
+```{r}
+data_habitat_test_type <- data_habitat_moneos %>%
+  filter(Habitattype == "1330_da") 
+
+test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_moneos %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_moneos %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
+
+test <- test$Resultaat_detail %>%
+  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
+```
+
+
+## LSVI-berekening
+
+```{r}
+
+input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/moneos/input") 
+
+write_vc(data_voorwaarden_moneos , file = "data_voorwaarden_moneos ", root = input_path, 
+         sorting = c("ID", "Voorwaarde"))
+write_vc(data_habitat_moneos, file = "data_habitat_moneos ", root = input_path, 
+         sorting = c("ID", "Habitattype"))
+write_vc(data_soorten_kenm_moneos, file = "data_soorten_kenm_moneos ", root = input_path, 
+         sorting = c("ID", "Vegetatielaag", "Kenmerk"))
+
+lsvi_moneos  <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_moneos ,
+                         Data_voorwaarden = data_voorwaarden_moneos ,
+                         Data_soortenKenmerken = data_soorten_kenm_moneos ,
+                         na.rm = TRUE)
+
+```
+
+### Manuele correctie
+
+De indicator 'verruiging' van habitatsubtype 1330_da is enkel van toepassing voor zoutwaterschor. Gezien alle meetpunten in brakwaterschor gelegen zijn, wordt deze indicator niet meegerekend in de analyse.
+
+De indicator 'sleutelsoorten' bestaat uit twee voorwaarden: 'aantal sleutelsoorten hoog schor' en 'aantal sleutelsoorten laag schor'. De indicator is gunstig als beide voorwaarden gunstig scoren. De indicator wordt echter beoordeeld op basis van een vegetatieopname in een plot van 3m x 3m die ofwel in hoog schor ofwel in laag schor gelegen is, waardoor er niet aan beide voorwaarden kan worden voldaan. Daarom beoordelen we in deze analyse de indicator 'sleutelsoorten' als gunstig wanneer (minstens) één van beide voorwaarden gunstig scoort.
+
+```{r}
+
+data_habitat_2330_dw <- data_habitat_moneos %>%
+  filter(Habitattype == "2330_dw")
+
+lsvi_eenjarigen <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_2330_dw ,
+                         Data_voorwaarden = data_voorwaarden_moneos %>%
+                           semi_join(data_habitat_2330_dw, by = "ID"),
+                         Data_soortenKenmerken = data_soorten_kenm_moneos %>%
+                           semi_join(data_habitat_2330_dw, by = "ID") %>%
+                           filter(Vegetatielaag == "kruidlaag" | is.na(Vegetatielaag)),
+                         na.rm = TRUE)
+
+lsvi_eenjarigen_vw <- lsvi_eenjarigen$Resultaat_detail %>%
+  filter(Indicator == "éénjarigen")
+
+lsvi_eenjarigen_ind <- lsvi_eenjarigen$Resultaat_indicator %>%
+  filter(Indicator == "éénjarigen")
+
+lsvi_moneos$Resultaat_detail <- lsvi_moneos$Resultaat_detail %>%
+  anti_join(lsvi_eenjarigen_vw, by = c("ID", "Indicator")) %>%
+  bind_rows(lsvi_eenjarigen_vw) %>%
+  arrange(ID, Habitattype, Criterium, Indicator)
+
+lsvi_moneos$Resultaat_indicator <- lsvi_moneos$Resultaat_indicator %>%
+  anti_join(lsvi_eenjarigen_ind, by = c("ID", "Indicator")) %>%
+  bind_rows(lsvi_eenjarigen_ind) %>%
+  arrange(ID, Habitattype, Criterium, Indicator)
+
+correct_status_globaal <- lsvi_moneos$Resultaat_indicator %>%
+  filter(!is.na(Status_indicator)) %>%
+  group_by(ID, Criterium) %>%
+  mutate(weight_crit = 1/n()) %>%
+  ungroup() %>%
+  group_by(ID, Habitattype) %>%
+  summarise(n_gunstig = sum(Status_indicator),
+            n_ind = n_distinct(Indicator),
+            n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
+            aandeel_gunstig = n_gunstig / n_ind * 100,
+            status_habitatvlek =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
+            index_mean_ind = round(mean(Verschilscore), 6),
+            index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 6)
+            ) %>%
+  ungroup() %>%
+  select(ID, Habitattype, n_zb_ongunstig, aandeel_gunstig, status_habitatvlek, index_mean_ind, index_mean_crit)
+
+correct_status_criterium <- lsvi_moneos$Resultaat_indicator %>%
+  filter(!is.na(Status_indicator)) %>%
+  group_by(ID, Habitattype, Criterium) %>%
+  summarise(n_gunstig = sum(Status_indicator),
+            n_ind = n_distinct(Indicator),
+            n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
+            aandeel_gunstig = n_gunstig / n_ind * 100,
+            status_criterium =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
+            index_mean_ind = round(mean(Verschilscore), 6)
+            ) %>%
+  ungroup() %>%
+  select(ID, Habitattype, Criterium, n_zb_ongunstig, aandeel_gunstig, status_criterium, index_mean_ind)
+
+lsvi_moneos$Resultaat_globaal <- lsvi_moneos$Resultaat_globaal %>%
+  left_join(correct_status_globaal, by = c("ID", "Habitattype")) %>%
+  mutate(Status = status_habitatvlek) %>%
+  select(-status_habitatvlek)
+
+lsvi_moneos$Resultaat_criterium <- lsvi_moneos$Resultaat_criterium %>%
+  left_join(correct_status_criterium, by = c("ID", "Habitattype", "Criterium")) %>%
+  mutate(Status_criterium = status_criterium) %>%
+  select(-status_criterium)
+
+```
+
+
+
+
+
+
+### Check missing voorwaarden
+
+```{r}
+missing_voorwaarde <- lsvi_moneos$Resultaat_detail %>%
+  group_by(Habitattype, Voorwaarde) %>%
+  mutate(n_totaal = n()) %>%
+  ungroup() %>%
+  filter(is.na(Waarde)) %>%
+  group_by(Habitattype, Voorwaarde, Belang, n_totaal) %>%
+  summarise(n_missing = n(),
+            plots_missing = str_c(ID, collapse = "; ")) %>%
+  ungroup() %>%
+  mutate(plots_missing = ifelse(n_missing < n_totaal,
+                                plots_missing, ""))
+```
+
+```{r}
+missing_voorwaarde %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+### Check missing belang
+
+```{r}
+missing_belang <- lsvi_moneos$Resultaat_detail %>%
+  filter(is.na(Belang)) %>%
+  distinct(Habitattype, Voorwaarde, Belang)
+```
+
+```{r}
+missing_belang %>%
+  datatable(rownames = FALSE)
+```
+
+### Preview
+
+```{r}
+lsvi_moneos$Resultaat_globaal %>%
+  ggplot(aes(fill = Status, x = Habitattype)) +
+  geom_bar()
+```
+
+```{r}
+lsvi_moneos$Resultaat_criterium %>%
+  ggplot(aes(fill = Status_criterium, x = Criterium)) +
+  geom_bar() +
+  facet_wrap(~Habitattype) +
+  coord_flip()
+```
+
+```{r, fig.width=9}
+lsvi_moneos$Resultaat_indicator %>%
+  ggplot(aes(fill = Status_indicator, x = Indicator)) +
+  geom_bar() +
+  facet_wrap(~Habitattype, scales = "free", ncol = 2) +
+  coord_flip()
+```
+
+## Write result
+
+```{r}
+
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/result") 
+
+lsvi_moneos %>%
+  write_lsvi_results(path = output_path, suffix = "_moneos")
+```
+

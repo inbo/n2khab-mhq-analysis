@@ -607,6 +607,6 @@ lsvi_hs_id$Resultaat_indicator %>%
 output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/result") 
 
 lsvi_hs_id %>%
-  write_lsvi_results(path = output_path)
+  write_lsvi_results(path = output_path, suffix = "_hs_id")
 ```
 

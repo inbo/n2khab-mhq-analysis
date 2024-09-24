@@ -35,6 +35,14 @@ classif_mhq_inbo <- get_type_inboveg(path_mhq_terr)
 
 header_mhq_inbo <- get_header(path_mhq_terr)
 
+site_qualifiers_moneos <- read_vc(file = "site_qualifiers_moneos", root = path_mhq_terr) %>%
+  filter(str_detect(plot_id, "ZS")) %>%
+  rename(record_id = recording_givid)
+
+structure_1330_da <- read_vc(file = "structure_mhq_1330_da", root = path_mhq_terr)
+
+coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_mhq_terr)
+
 ```
 
 ## Fieldmap data
@@ -58,19 +66,37 @@ pq_mhq_anb <- classif_mhq_anb %>%
 ```{r}
 
 pq_mhq_inbo <- header_mhq_inbo %>%
-  filter(!survey %in% c("Schelde-estuarium", "N2000meetnet_Bos_91E0_sf")) %>%
-  mutate(plot_type = ifelse(area == 9, "square",
+  filter(!survey %in% c("Schelde-estuarium")) %>%
+  mutate(plot_type = ifelse(area %in% c(9, 256), "square",
                             ifelse(area > 1000, "circle", NA)),
          date = as.Date(vague_date_begin)) %>%
-  select(survey, date, record_id, user_reference, plot_type)
+  left_join(site_qualifiers_moneos, by = c("survey", "record_id")) %>%
+  select(survey, date, record_id, user_reference, plot_type, plot_id)
+
+pq_moneos <- header_mhq_inbo %>%
+  filter(survey %in% c("Schelde-estuarium")) %>%
+  left_join(site_qualifiers_moneos, by = c("survey", "record_id")) %>%
+  filter(!is.na(plot_id)) %>%
+  semi_join(structure_1330_da, by = "plot_id") %>% #dit bestand bevat alle plots met 1330_da
+  mutate(plot_type = "square",
+         date = as.Date(vague_date_begin)) %>%
+  select(survey, date, record_id, user_reference, plot_type, plot_id) 
+
+pq_mhq_inbo <- pq_mhq_inbo %>%
+  bind_rows(pq_moneos)
 
 pq_mhq_inbo_wide <- pq_mhq_inbo %>%
   filter(!is.na(plot_type)) %>%
   pivot_wider(names_from = "plot_type", values_from = "record_id", names_prefix = "record_id_") %>%
-  mutate(ID = str_c(user_reference, "_", date))
+  mutate(ID = ifelse(!is.na(plot_id), str_c(plot_id, "_", date), str_c(user_reference, "_", date)))
+
+classif_1330_da <- pq_moneos %>%
+  distinct(survey, record_id) %>%
+  mutate(type_observed = "1330_da",
+         type_cover = 100)
 
 classif_mhq_inbo <- classif_mhq_inbo %>%
-  filter(!survey %in% c("Schelde-estuarium", "N2000meetnet_Bos_91E0_sf")) %>%
+  bind_rows(classif_1330_da) %>%
   left_join(select(pq_mhq_inbo, record_id, plot_type), by = "record_id") %>%
   filter(plot_type == "square") %>%
   rename(record_id_square = record_id) %>%
@@ -100,7 +126,7 @@ type_info <- types %>%
 
 classif_mhq <- classif_mhq_inbo %>%
   bind_rows(classif_mhq_anb) %>%
-  select(survey, ID, record_id_square, record_id_circle, date, type_observed, plot_type, type_cover) %>%
+  select(survey, ID, record_id_square, record_id_circle, date, type_observed, plot_type, type_cover, plot_id) %>%
   left_join(type_info, by = "type_observed") %>%
   mutate(is_type_target = type_observed %in% mhq_schemes$type,
          is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(mhq_schemes$type, 1, 4),
@@ -114,7 +140,7 @@ classif_mhq <- classif_mhq_inbo %>%
   filter(is_maintype_target)
 
 data_habitat <- classif_mhq %>%
-  select(ID, survey, record_id_square, record_id_circle, date, type_observed, subtype_defined, type_cover, type_cover_all)
+  select(ID, survey, record_id_square, record_id_circle, date, type_observed, subtype_defined, type_cover, type_cover_all, plot_id)
   
 ```
 

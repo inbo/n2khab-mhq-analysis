@@ -38,5 +38,6 @@ options(dplyr.summarise.inform = FALSE)
 
 source("../functions_lsvi_calc.R")
 maakConnectiePool()
+
 ```
 

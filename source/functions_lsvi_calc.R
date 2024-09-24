@@ -153,6 +153,29 @@ get_structure_var_fieldmap <- function(data_path, record_ids = NULL){
 }
 
 ###############################################################################
+### structure var 1330_da
+###############################################################################
+
+get_structure_1330_da <- function(data_path, plot_ids = NULL){
+
+  structure_var <- read_vc(root = data_path, file = "structure_mhq_1330_da") %>%
+    select(plot_id, structure_var, value, date)
+
+  if (is.null(plot_ids)) {
+
+    result <- structure_var
+
+  } else {
+
+    result <- structure_var %>%
+      filter(plot_id %in% plot_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
 ### microreliëf
 ###############################################################################
 
@@ -174,6 +197,7 @@ get_microrelief <- function(data_path_extravar, record_ids = NULL){
   return(result)
 }
 
+
 ###############################################################################
 ### header informatie
 ###############################################################################
@@ -190,6 +214,29 @@ get_header <- function(data_path, record_ids = NULL){
   } else {
 
     result <- header %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
+### site qualifier informatie
+###############################################################################
+
+get_site_qualifier <- function(data_path, record_ids = NULL){
+
+  site_qualifier <- read_vc(root = data_path, file = "site_qualifiers_moneos") %>%
+    rename(record_id = recording_givid)
+
+  if (is.null(record_ids)) {
+
+    result <- site_qualifier
+
+  } else {
+
+    result <- site_qualifier %>%
       filter(record_id %in% record_ids)
 
   }
@@ -301,6 +348,106 @@ get_voorwaarden_gr_bm <- function(data_path_fieldmap, data_path_inboveg,
 
   return(voorwaarden)
 }
+
+###############################################################################
+### voorwaarden 91E0_sf
+###############################################################################
+
+get_voorwaarden_91E0_sf <- function(data_path,
+                                    data_path_extravar,
+                                     plot_coords,
+                                     record_ids = NULL) {
+
+  vw_91E0_sf <- geefInvoervereisten(Versie = "Versie 3",
+                                    Habitattype = "91E0_sf") %>%
+    select(Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
+
+  voorwaarden <- get_structure_var(data_path, record_ids) %>%
+    filter(structure_var %in% c("aandeel dood hout", "hoeveelheid dik dood hout",
+                                "sleutelsoorten boom- en struiklaag")) %>%
+    mutate(structure_var = ifelse(structure_var == "sleutelsoorten boom- en struiklaag",
+                                  "sleutelsoorten van de boom- en struiklaag", structure_var)) %>%
+    rename(Indicator = structure_var, Waarde = cover) %>%
+    inner_join(vw_91E0_sf, by = "Indicator") %>%
+    select(record_id = recording_givid, Criterium, Indicator ,
+           Voorwaarde, Waarde, Type, Eenheid, Invoertype)
+
+  header <- get_header(data_path, record_ids) %>%
+    select(record_id, vague_date_begin)
+
+  site_qualifier <- get_site_qualifier(data_path, record_ids) %>%
+    left_join(header, by = "record_id") %>%
+    mutate(ID = str_c(plot_id, "_", vague_date_begin)) %>%
+    select(record_id, ID)
+
+  voorwaarden <- voorwaarden %>%
+    left_join(site_qualifier, by = "record_id")
+
+  if (is.null(record_ids)) {
+
+    result <- voorwaarden
+
+  } else {
+
+    result <- voorwaarden %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(voorwaarden)
+}
+
+###############################################################################
+### voorwaarden 1330_da
+###############################################################################
+
+get_voorwaarden_1330_da <- function(data_path,
+                                    plot_ids = NULL) {
+
+  vw_1330_da <- geefInvoervereisten(Versie = "Versie 3",
+                                    Habitattype = "1330_da") %>%
+    select(Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
+
+  voorwaarden <- get_structure_1330_da(data_path, plot_ids) %>%
+    rename(Voorwaarde = structure_var, Waarde = value) %>%
+    mutate(Voorwaarde = ifelse(Voorwaarde == "intertidale ruimte thv GHW aanwezig",
+                               "intertidale ruimte aanwezig", Voorwaarde)) %>%
+    inner_join(vw_1330_da, by = "Voorwaarde") %>%
+    mutate(Waarde = ifelse(Waarde == "ja", "1",
+                           ifelse(Waarde == "nee", "0", Waarde)),
+           Waarde = as.numeric(Waarde)) %>%
+    select(plot_id, Criterium, Indicator ,
+           Voorwaarde, Waarde, Type, Eenheid, Invoertype)
+
+  site_qualifier <- get_site_qualifier(data_path)
+
+  header <- get_header(data_path, record_ids = site_qualifier$record_id) %>%
+    select(record_id, vague_date_begin)
+
+  site_qualifier <- site_qualifier %>%
+    left_join(header, by = "record_id") %>%
+    mutate(ID = str_c(plot_id, "_", vague_date_begin)) %>%
+    select(record_id, ID, plot_id)
+
+  #voorlopig nog maar een meting voorwaarde per plot
+  voorwaarden <- voorwaarden %>%
+    left_join(site_qualifier, by = "plot_id")
+
+  if (is.null(plot_ids)) {
+
+    result <- voorwaarden
+
+  } else {
+
+    result <- voorwaarden %>%
+      filter(plot_id %in% plot_ids)
+
+  }
+
+  return(voorwaarden)
+}
+
+
 
 ###############################################################################
 ### soorten en kenmerken
@@ -491,7 +638,7 @@ get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
 }
 
 ###############################################################################
-### voorwaarden duinen
+### voorwaarden heide en inlandse duinen
 ###############################################################################
 
 get_voorwaarden_hs_id <- function(data_path_inboveg, data_path_fieldmap, record_ids = NULL) {
@@ -616,6 +763,46 @@ get_kenmerken_open_zand <- function(data_path_inboveg, data_path_fieldmap, recor
     select(record_id, ID, Kenmerk, TypeKenmerk, Waarde, Eenheid, Type)
 
   return(open_zand)
+}
+
+get_soorten_kenmerken_moneos <- function(data_path, record_ids = NULL) {
+
+  soorten <- get_soorten_kenmerken(data_path_inboveg = data_path,
+                                   record_ids = record_ids) %>%
+    select(-ID)
+
+  groeiklassen <- get_structure_var(data_path, record_ids) %>%
+    filter(str_detect(structure_var, "groeiklasse")) %>%
+    mutate(TypeKenmerk = "studiegroep",
+           Type = "Percentage",
+           Eenheid = "%") %>%
+    select(record_id = recording_givid,Kenmerk = structure_var, TypeKenmerk, Type, Waarde = cover, Eenheid)
+
+  cover_sleutelsoorten <- get_structure_var(data_path, record_ids) %>%
+    filter(str_detect(structure_var, "bedekking")) %>%
+    mutate(Kenmerk = str_to_sentence(str_remove(structure_var, "bedekking ")),
+           TypeKenmerk = "Soort_Latijn",
+           Vegetatielaag = "kruidlaag",
+           Type = "Percentage",
+           Eenheid = "%") %>%
+    select(record_id = recording_givid, Vegetatielaag, Kenmerk, TypeKenmerk, Type, Waarde = cover, Eenheid)
+
+  header <- get_header(data_path, record_ids) %>%
+    select(record_id, vague_date_begin)
+
+  site_qualifier <- get_site_qualifier(data_path, record_ids) %>%
+    left_join(header, by = "record_id") %>%
+    mutate(ID = str_c(plot_id, "_", vague_date_begin)) %>%
+    select(record_id, ID)
+
+  result <- soorten %>%
+    bind_rows(groeiklassen) %>%
+    bind_rows(cover_sleutelsoorten) %>%
+    left_join(site_qualifier, by = "record_id") %>%
+    arrange(ID) %>%
+    filter(!is.na(Kenmerk))
+
+  return(result)
 }
 
 ################################################################################
