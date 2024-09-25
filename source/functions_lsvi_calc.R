@@ -176,6 +176,98 @@ get_structure_1330_da <- function(data_path, plot_ids = NULL){
 }
 
 ###############################################################################
+### bomen in a3 en a4 plot
+###############################################################################
+
+get_trees_a3a4 <- function(data_path, record_ids = NULL) {
+
+  trees_a3a4 <- read_vc(file = "trees_a3a4", root = data_path) %>%
+    mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  if (is.null(record_ids)) {
+
+    result <- trees_a3a4
+
+  } else {
+
+    result <- trees_a3a4 %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
+### bomen in a2 plot
+###############################################################################
+
+get_trees_a2 <- function(data_path, record_ids = NULL) {
+
+  trees_a2 <- read_vc(file = "trees_a2", root = data_path) %>%
+    mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  if (is.null(record_ids)) {
+
+    result <- trees_a2
+
+  } else {
+
+    result <- trees_a2 %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
+### hakhout
+###############################################################################
+
+get_shoots <- function(data_path, record_ids = NULL) {
+
+  shoots <- read_vc(file = "shoots", root = data_path) %>%
+    mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  if (is.null(record_ids)) {
+
+    result <- shoots
+
+  } else {
+
+    result <- shoots %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
+### liggend dood hout
+###############################################################################
+
+get_lim <- function(data_path, record_ids = NULL) {
+
+  lim <- read_vc(file = "lim", root = data_path) %>%
+    mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  if (is.null(record_ids)) {
+
+    result <- lim
+
+  } else {
+
+    result <- lim %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
 ### microreliëf
 ###############################################################################
 
@@ -196,7 +288,6 @@ get_microrelief <- function(data_path_extravar, record_ids = NULL){
 
   return(result)
 }
-
 
 ###############################################################################
 ### header informatie
@@ -354,8 +445,7 @@ get_voorwaarden_gr_bm <- function(data_path_fieldmap, data_path_inboveg,
 ###############################################################################
 
 get_voorwaarden_91E0_sf <- function(data_path,
-                                    data_path_extravar,
-                                     plot_coords,
+                                    data_path_extra_var,
                                      record_ids = NULL) {
 
   vw_91E0_sf <- geefInvoervereisten(Versie = "Versie 3",
@@ -378,10 +468,107 @@ get_voorwaarden_91E0_sf <- function(data_path,
   site_qualifier <- get_site_qualifier(data_path, record_ids) %>%
     left_join(header, by = "record_id") %>%
     mutate(ID = str_c(plot_id, "_", vague_date_begin)) %>%
-    select(record_id, ID)
+    select(record_id, ID, plot_id)
 
   voorwaarden <- voorwaarden %>%
-    left_join(site_qualifier, by = "record_id")
+    left_join(site_qualifier, by = "record_id") %>%
+    select(-plot_id)
+
+  bosconstantie <- read_vc(root = data_path_extra_var, file = "bosconstantie_91E0_sf")
+
+  vw_bosconstantie <- bosconstantie  %>%
+    mutate(Indicator = "bosconstantie") %>%
+    select(plot_id, Indicator, Waarde = bosconstantie)
+
+  msa <- read_vc(root = data_path_extra_var, file = "msa_91E0_sf")
+
+  vw_msa <- msa  %>%
+    mutate(Indicator = "minimum structuurareaal") %>%
+    select(plot_id, Indicator, Waarde = MSA)
+
+  vw_extra <- vw_bosconstantie %>%
+    bind_rows(vw_msa) %>%
+    left_join(site_qualifier, by = "plot_id") %>%
+    inner_join(vw_91E0_sf, by = "Indicator") %>%
+    select(ID, record_id, Criterium, Indicator ,
+           Voorwaarde, Waarde, Type, Eenheid, Invoertype)
+
+  voorwaarden <- voorwaarden %>%
+    bind_rows(vw_extra) %>%
+    arrange(ID)
+
+
+  if (is.null(record_ids)) {
+
+    result <- voorwaarden
+
+  } else {
+
+    result <- voorwaarden %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(voorwaarden)
+}
+
+###############################################################################
+### voorwaarden forests
+###############################################################################
+
+get_voorwaarden_fs <- function(data_path,
+                                    data_path_extra_var,
+                                    record_ids = NULL) {
+
+  vw_forests <- geefInvoervereisten(Versie = "Versie 3",
+                                    Habitatgroep = "Bossen en struwelen") %>%
+    select(Habitatsubtype, Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
+
+  voorwaarden <- get_structure_var_fieldmap(data_path, record_ids) %>%
+    filter(structure_var %in% c("aandeel dood hout", "hoeveelheid dik dood hout",
+                                "sleutelsoorten boom- en struiklaag")) %>%
+    mutate(structure_var = ifelse(structure_var == "sleutelsoorten boom- en struiklaag",
+                                  "sleutelsoorten van de boom- en struiklaag", structure_var)) %>%
+    rename(Indicator = structure_var, Waarde = cover) %>%
+    inner_join(vw_91E0_sf, by = "Indicator") %>%
+    select(record_id = recording_givid, Criterium, Indicator ,
+           Voorwaarde, Waarde, Type, Eenheid, Invoertype)
+
+  header <- get_header(data_path, record_ids) %>%
+    select(record_id, vague_date_begin)
+
+  site_qualifier <- get_site_qualifier(data_path, record_ids) %>%
+    left_join(header, by = "record_id") %>%
+    mutate(ID = str_c(plot_id, "_", vague_date_begin)) %>%
+    select(record_id, ID, plot_id)
+
+  voorwaarden <- voorwaarden %>%
+    left_join(site_qualifier, by = "record_id") %>%
+    select(-plot_id)
+
+  bosconstantie <- read_vc(root = data_path_extra_var, file = "bosconstantie_91E0_sf")
+
+  vw_bosconstantie <- bosconstantie  %>%
+    mutate(Indicator = "bosconstantie") %>%
+    select(plot_id, Indicator, Waarde = bosconstantie)
+
+  msa <- read_vc(root = data_path_extra_var, file = "msa_91E0_sf")
+
+  vw_msa <- msa  %>%
+    mutate(Indicator = "minimum structuurareaal") %>%
+    select(plot_id, Indicator, Waarde = MSA)
+
+  vw_extra <- vw_bosconstantie %>%
+    bind_rows(vw_msa) %>%
+    left_join(site_qualifier, by = "plot_id") %>%
+    inner_join(vw_91E0_sf, by = "Indicator") %>%
+    select(ID, record_id, Criterium, Indicator ,
+           Voorwaarde, Waarde, Type, Eenheid, Invoertype)
+
+  voorwaarden <- voorwaarden %>%
+    bind_rows(vw_extra) %>%
+    arrange(ID)
+
 
   if (is.null(record_ids)) {
 
@@ -453,8 +640,10 @@ get_voorwaarden_1330_da <- function(data_path,
 ### soorten en kenmerken
 ###############################################################################
 
-get_soorten_kenmerken <- function(data_path_fieldmap = NULL, data_path_inboveg,
+get_soorten_kenmerken <- function(data_path_fieldmap = NULL, data_path_inboveg = NULL,
                                   record_ids = NULL){
+
+if (!is.null(data_path_inboveg)) {
 
   cover_species <- get_cover_species(data_path_inboveg, record_ids) %>%
     mutate(Vegetatielaag = ifelse(layer_code %in% c("K", "KH", "KL"),
@@ -480,6 +669,12 @@ get_soorten_kenmerken <- function(data_path_fieldmap = NULL, data_path_inboveg,
     left_join(header, by = "record_id") %>%
     select(record_id, ID, Vegetatielaag, Kenmerk = name_scientific,
            TypeKenmerk, Waarde = species_cover, Type, Eenheid, Invoertype)
+
+} else {
+
+  cover_species <- NULL
+
+}
 
   if (!is.null(data_path_fieldmap)) {
 
@@ -803,6 +998,104 @@ get_soorten_kenmerken_moneos <- function(data_path, record_ids = NULL) {
     filter(!is.na(Kenmerk))
 
   return(result)
+}
+
+get_soorten_kenmerken_fs <- function(data_path, record_ids = NULL, niveau = "plot", inventory = "VBI2"){
+
+  cover_species <- get_soorten_kenmerken(data_path_fieldmap = data_path, record_ids = NULL)
+    #data_grondvlak <- berekenLevendHoutSoort(db = db,  plotIDs = plotHabtypes$IDPlots, niveau = "segment")
+
+  data_groeiklassen <- calc_growth_classes(data_path, record_ids)
+
+  data_vegetatielagen <- get_cover_veglayers_fieldmap(data_path, record_ids)
+
+      result <- bind_rows(data_soorten,
+                          #data_grondvlak,
+                          data_groeiklassen,
+                          data_vegetatielagen) %>%
+        mutate(ID = paste(substr(databank, 1, 3), IDPlots, ifelse(databank == "VBI2", "_2", "") , sep = "")) %>%
+        select(ID, IDPlots, everything() ) %>%
+        arrange(ID)
+
+      return(result)
+
+    }
+
+###############################################################################
+### groeiklassen
+###############################################################################
+
+calc_growth_classes <- function(data_path, record_ids = NULL){
+
+  # groeiklasse 4 tot groeiklasse 6 leiden we af uit A3A4 bomen
+
+    trees_a3a4 <- get_trees_a3a4(data_path, record_ids)
+
+  #voor hakhout bepalen we de groeiklasse op basis van de maximale diameter van de shoots
+
+  shoots <- get_shoots(data_path, record_ids) %>%
+    group_by(plot_id, tree_id) %>%
+    summarise(dbh_mm_max = max(dbh_mm)) %>%
+    ungroup()
+
+  # groeiklassen voor levende bomen (dode bomen rekenen we niet mee)
+  growth_class_4_5_6_7 <- trees_a3a4 %>%
+    left_join(shoots, by = c("plot_id", "tree_id")) %>%
+    mutate(dbh_mm = ifelse(!is.na(coppice_individual) & coppice_individual == "Hakhoutstoof" & !is.na(dbh_mm_max),
+                           dbh_mm_max, dbh_mm)) %>%
+    filter(is.na(status_tree) | status_tree == "levend") %>%
+    group_by(plot_id, date_assessment) %>%
+    summarise(groeiklasse4 = sum(dbh_mm >= 70 & dbh_mm < 140, na.rm = TRUE) > 0,
+              groeiklasse5 = sum(dbh_mm >= 140 & dbh_mm < 500, na.rm = TRUE) > 0,
+              groeiklasse6 = sum(dbh_mm >= 500 & dbh_mm < 800, na.rm = TRUE) > 0,
+              groeiklasse7 = sum(dbh_mm >= 800, na.rm = TRUE) > 0) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("groeiklasse"), names_to = "growth_class", values_to = "value")
+
+  #groeiklasse3 komt overeen met A2-boom
+  trees_a2 <- get_trees_a2(data_path, record_ids)
+
+  growth_class_3 <- trees_a2 %>%
+    mutate(growth_class = "groeiklasse3",
+           value = TRUE) %>%
+    distinct(plot_id, date_assessment, growth_class, value)
+
+  #groeiklasse2 = natuurlijke verjonging (boomsoort in kruidlaag)
+  cover_species <- get_cover_species_fieldmap(data_path, record_ids)
+
+  trees_genus <- cover_species %>%
+    filter(layer == "treelayer") %>%
+    distinct(layer, name_nl, name_sc) %>%
+    mutate(genus = word(name_sc, 1)) %>%
+    filter(!name_nl %in% c("Klimop", "Maretak", "Wilde Kamperfoelie"))
+
+  growth_class_2 <- cover_species %>%
+    mutate(genus = word(name_sc, 1)) %>%
+    group_by(plot_id, date_assessment) %>%
+    summarise(value = any(genus %in% trees_genus$genus & layer == "herblayer")) %>%
+    ungroup() %>%
+    mutate(growth_class = "groeiklasse2")
+
+  growth_classes <- growth_class_4_5_6_7 %>%
+    bind_rows(growth_class_2) %>%
+    bind_rows(growth_class_3) %>%
+    rename(Kenmerk = growth_class, Waarde = value) %>%
+    mutate(record_id = str_c(plot_id, "_", date_assessment),
+           Waarde = ifelse(Waarde, 1, 0),
+           TypeKenmerk = "studiegroep",
+           Type = "Ja/nee",
+           Eenheid = NA) %>%
+    arrange(record_id, Kenmerk)
+
+  if (!is.null(record_ids)) {
+
+    growth_classes <- growth_classes %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(growth_classes)
+
 }
 
 ################################################################################
