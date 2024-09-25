@@ -2,19 +2,17 @@
 
 ```{r}
 
-schemes_hs_id <- mhq_schemes %>%
-  filter(typeclass %in% c("ID", "HS")) 
+schemes_fs <- mhq_schemes %>%
+  filter(typeclass %in% c("FS")) 
 
 ```
 
 ```{r}
 overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
-                            Habitattype = as.character(schemes_hs_id$type),
+                            Habitattype = as.character(schemes_fs$type),
                             Versie = "Versie 3") %>%
   distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde, Beoordeling)
 
-
-check <- geefSoortenlijstVoorIDs(Taxongroeplijst = "17")
 ```
 
 ```{r}
@@ -28,9 +26,9 @@ overzicht_lsvi %>%
 
 ```{r}
 
-data_habitat_hs_id <- data_habitat %>%
-  mutate(is_type_target = type_observed %in% schemes_hs_id$type,
-         is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(schemes_hs_id$type, 1, 4)) %>%
+data_habitat_mhq_fs <- data_habitat %>%
+  mutate(is_type_target = type_observed %in% schemes_fs$type,
+         is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(schemes_fs$type, 1, 4)) %>%
   group_by(ID) %>%
   mutate(any_type_target = any(is_type_target),
          n_type_target = sum(is_type_target),
@@ -38,29 +36,19 @@ data_habitat_hs_id <- data_habitat %>%
          Habitattype = type_observed) %>%
   ungroup() %>%
   filter(is_maintype_target) %>%
-  filter(!str_detect(survey, "Grasland|Moeras"))
+  filter(type_observed != "91E0_sf")
 
-check <- data_habitat_hs_id %>%
+check <- data_habitat_mhq_fs %>%
   group_by(ID) %>%
   filter(n() > 1)
 
-data_voorwaarden_hs_id <- get_voorwaarden_hs_id(data_path_fieldmap = path_mhq_anb,
-                                                data_path_inboveg = path_mhq_terr,
-                          record_ids = c(data_habitat_hs_id$record_id_square,
-                                         data_habitat_hs_id$record_id_circle)) %>%
-  mutate(plot_type = "circle")
+data_voorwaarden_fs <- get_voorwaarden_fs(data_path = path_mhq_anb,
+                                          data_path_extra_var = path_extra_var,
+                          record_ids = c(data_habitat_mhq_fs$record_id_square))
 
-data_soorten_kenm_hs_id <- get_soorten_kenmerken(data_path_inboveg = path_mhq_terr,
+data_soorten_kenm_fs <- get_soorten_kenmerken(data_path_inboveg = path_mhq_terr,
                                                  data_path_fieldmap = path_mhq_anb,
-                         record_ids =  data_habitat_hs_id$record_id_square) %>%
-  bind_rows(get_kenmerken_open_zand(data_path_fieldmap = path_mhq_anb,
-                                                data_path_inboveg = path_mhq_terr,
-                          record_ids = c(data_habitat_hs_id$record_id_square,
-                                         data_habitat_hs_id$record_id_circle)))
-
-data_test <- data_soorten_kenm_hs_id %>%
-  filter(ID == "863826_2022-09-29")
-
+                         record_ids =  data_habitat_mhq_fs$record_id_square)
 ```
 
 ## Berekening voorwaarden
@@ -97,7 +85,7 @@ De bedekking van 'open vegetaties' (2310) en 'open vegetaties en kaal zand' (233
 
 ```{r}
 voorwaarden_module <- overzicht_lsvi %>%
-  anti_join(data_voorwaarden_hs_id, by = "Voorwaarde")
+  anti_join(data_voorwaarden_fs, by = "Voorwaarde")
 ```
 
 Volgende voorwaarden worden door de rekenmodule berekend
@@ -128,12 +116,12 @@ subtypes_2330 <- types %>%
   filter(typelevel == "subtype") %>%
   select(type_observed = main_type, Habitattype = type) 
 
-data_habitat_2330 <- data_habitat_hs_id %>%
+data_habitat_2330 <- data_habitat_fs %>%
   filter(type_observed == "2330") %>%
   select(-Habitattype) %>%
   left_join(subtypes_2330, by = "type_observed")
 
-data_habitat_hs_id <- data_habitat_hs_id %>%
+data_habitat_fs <- data_habitat_fs %>%
   anti_join(data_habitat_2330, by = "ID") %>%
   bind_rows(data_habitat_2330)
 ```
@@ -141,24 +129,24 @@ data_habitat_hs_id <- data_habitat_hs_id %>%
 ### Voorwaarden
 
 ```{r}
-voorwaarden_hs_id  <- overzicht_lsvi %>%
-  semi_join(data_voorwaarden_hs_id , by = "Voorwaarde") %>%
+voorwaarden_fs  <- overzicht_lsvi %>%
+  semi_join(data_voorwaarden_fs , by = "Voorwaarde") %>%
   select(Habitatsubtype, Criterium, Indicator, Voorwaarde) %>%
   mutate(Voorwaarde = ifelse(Habitatsubtype == "2310" & Indicator == "horizontale structuur", 
                              "bedekking open vegetaties en kaal zand", 
                              Voorwaarde))
 
-check <- voorwaarden_hs_id %>%
+check <- voorwaarden_fs %>%
   distinct(Indicator, Voorwaarde)
 
-voorwaarde_plot_type <- data_voorwaarden_hs_id  %>%
+voorwaarde_plot_type <- data_voorwaarden_fs  %>%
   distinct(Voorwaarde, plot_type, Eenheid, Type)
 
-check_voorwaarden <- data_habitat_hs_id  %>%
+check_voorwaarden <- data_habitat_fs  %>%
   rename(Habitatsubtype = Habitattype) %>%
-  left_join(voorwaarden_hs_id , by = "Habitatsubtype") %>%
+  left_join(voorwaarden_fs , by = "Habitatsubtype") %>%
   left_join(voorwaarde_plot_type, by = "Voorwaarde") %>%
-  left_join(select(data_voorwaarden_hs_id , -Eenheid, -Type), by = c("ID", "Criterium", "Indicator", "Voorwaarde", "plot_type")) %>%
+  left_join(select(data_voorwaarden_fs , -Eenheid, -Type), by = c("ID", "Criterium", "Indicator", "Voorwaarde", "plot_type")) %>%
   filter(!is.na(Voorwaarde)) %>%
   group_by(ID) %>%
   mutate(all_missing = all(is.na(Waarde))) %>%
@@ -180,7 +168,7 @@ Deze plot laten we weg uit de analyse.
 
 ```{r}
 
-data_voorwaarden_hs_id <- check_voorwaarden %>%
+data_voorwaarden_fs <- check_voorwaarden %>%
   filter(!all_missing) %>%
   mutate(Waarde = ifelse(is.na(Waarde), 0, Waarde)) %>%
   select(ID, record_id, plot_type, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
@@ -190,23 +178,23 @@ data_voorwaarden_hs_id <- check_voorwaarden %>%
   unique()
 # in LSVI tabel heet de voorwaarde bij indocator horizontale structuur 'bedekking open vegetaties', maar gaat eigenlijk over 'bedekking open vegetaties en kaal zand'
 
-data_habitat_hs_id <- data_habitat_hs_id %>%
+data_habitat_fs <- data_habitat_fs %>%
   anti_join(plots_all_missing, by = "ID")
 
-data_soorten_kenm_hs_id <- data_soorten_kenm_hs_id %>%
+data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
     anti_join(plots_all_missing, by = "ID")
 ```
 
 ### Vegetatiegegevens
 
 ```{r}
-check_missingveg <- data_habitat_hs_id  %>%
+check_missingveg <- data_habitat_fs  %>%
   rename(record_id = record_id_square) %>%
-  anti_join(data_soorten_kenm_hs_id, by = c("record_id"))
+  anti_join(data_soorten_kenm_fs, by = c("record_id"))
 
-check_missingvalue <- data_habitat_hs_id  %>%
+check_missingvalue <- data_habitat_fs  %>%
   rename(record_id = record_id_square) %>%
-  left_join(data_soorten_kenm_hs_id, by = c("record_id", "ID"))
+  left_join(data_soorten_kenm_fs, by = c("record_id", "ID"))
 
 missing_kenmerk <- check_missingvalue %>%
   filter(is.na(Kenmerk))
@@ -225,12 +213,12 @@ missing_cover_plot <- check_missingvalue %>%
   ungroup() %>%
   filter(any_missing_cover)
 
-double <- data_soorten_kenm_hs_id %>%
+double <- data_soorten_kenm_fs %>%
   filter(!is.na(Kenmerk)) %>%
   group_by(ID, record_id, Kenmerk, Vegetatielaag) %>%
   filter(n() > 1)
   
-data_soorten_kenm_hs_id <- data_soorten_kenm_hs_id %>%
+data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
   filter(!is.na(Kenmerk))
 
 ```
@@ -270,7 +258,7 @@ filter(Vegetatielaag == "kruidlaag") %>%
 ```
 
 ```{r}
-data_habitat_test <- data_habitat_hs_id %>%
+data_habitat_test <- data_habitat_fs %>%
   group_by(Habitattype) %>%
   slice_head(n = 1) %>%
   ungroup()
@@ -279,16 +267,16 @@ data_habitat_test <- data_habitat_hs_id %>%
 ## TEST 2310
 
 ```{r}
-data_habitat_test_type <- data_habitat_hs_id %>%
+data_habitat_test_type <- data_habitat_fs %>%
   filter(Habitattype == "2310")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_test_type,
-                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                         Data_voorwaarden = data_voorwaarden_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
 test <- test$Resultaat_detail %>%
@@ -305,16 +293,16 @@ Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieL
 ## TEST 2330_bu
 
 ```{r}
-data_habitat_test_type <- data_habitat_hs_id %>%
+data_habitat_test_type <- data_habitat_fs %>%
   filter(Habitattype == "2330_bu") 
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_test_type,
-                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                         Data_voorwaarden = data_voorwaarden_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
 test <- test$Resultaat_detail %>%
@@ -331,16 +319,16 @@ Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieL
 ## TEST 2330_dw
 
 ```{r}
-data_habitat_test_type <- data_habitat_hs_id %>%
+data_habitat_test_type <- data_habitat_fs %>%
   filter(Habitattype == "2330_dw") 
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_test_type,
-                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                         Data_voorwaarden = data_voorwaarden_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
 test <- test$Resultaat_detail %>%
@@ -348,7 +336,7 @@ test <- test$Resultaat_detail %>%
 
 #check voorwaarde éénjarigen
 
-soorten_enkelkruid <- data_soorten_kenm_hs_id %>%
+soorten_enkelkruid <- data_soorten_kenm_fs %>%
   filter(Vegetatielaag == "kruidlaag" | is.na(Vegetatielaag))
 
 test_eenj <- berekenLSVIbasis(Versie = "Versie 3",
@@ -357,7 +345,7 @@ test_eenj <- berekenLSVIbasis(Versie = "Versie 3",
                          Data_habitat = data_habitat_test_type,
                          Data_soortenKenmerken = soorten_enkelkruid %>%
                            semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                         Data_voorwaarden = data_voorwaarden_fs %>%
                            semi_join(data_habitat_test_type, by = "ID")) 
 
 test_eenj <- test_eenj$Resultaat_detail %>%
@@ -383,7 +371,7 @@ Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieL
 ## TEST 4010
 
 ```{r}
-data_habitat_test_type <- data_habitat_hs_id %>%
+data_habitat_test_type <- data_habitat_fs %>%
   filter(Habitattype == "4010") %>%
   filter(ID == "23538_2022-09-01")
 
@@ -391,9 +379,9 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_test_type,
-                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                         Data_voorwaarden = data_voorwaarden_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
 test <- test$Resultaat_detail %>%
@@ -410,16 +398,16 @@ Sphagnum magellanicum Brid. --> geen sleutelsoort
 ## TEST 4030
 
 ```{r}
-data_habitat_test_type <- data_habitat_hs_id %>%
+data_habitat_test_type <- data_habitat_fs %>%
   filter(Habitattype == "4030")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_test_type,
-                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                         Data_voorwaarden = data_voorwaarden_fs %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
 test <- test$Resultaat_detail %>%
@@ -439,22 +427,22 @@ Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieL
 
 input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/input") 
 
-data_voorwaarden_hs_id  <- data_voorwaarden_hs_id  %>%
+data_voorwaarden_fs  <- data_voorwaarden_fs  %>%
   filter(!(is.na(Waarde) & (Type == "Ja/nee")))
 
-write_vc(data_voorwaarden_hs_id , file = "data_voorwaarden_hs_id ", root = input_path, 
+write_vc(data_voorwaarden_fs , file = "data_voorwaarden_fs ", root = input_path, 
          sorting = c("ID", "Voorwaarde"))
-write_vc(data_habitat_hs_id, file = "data_habitat_hs_id ", root = input_path, 
+write_vc(data_habitat_fs, file = "data_habitat_fs ", root = input_path, 
          sorting = c("ID", "Habitattype"))
-write_vc(data_soorten_kenm_hs_id, file = "data_soorten_kenm_hs_id ", root = input_path, 
+write_vc(data_soorten_kenm_fs, file = "data_soorten_kenm_fs ", root = input_path, 
          sorting = c("ID", "Vegetatielaag", "Kenmerk"))
 
-lsvi_hs_id  <- berekenLSVIbasis(Versie = "Versie 3",
+lsvi_fs  <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
-                         Data_habitat = data_habitat_hs_id ,
-                         Data_voorwaarden = data_voorwaarden_hs_id ,
-                         Data_soortenKenmerken = data_soorten_kenm_hs_id ,
+                         Data_habitat = data_habitat_fs ,
+                         Data_voorwaarden = data_voorwaarden_fs ,
+                         Data_soortenKenmerken = data_soorten_kenm_fs ,
                          na.rm = TRUE)
 
 ```
@@ -465,16 +453,16 @@ We berekenen de indicator 'éénjarigen' bij 2330_dw opnieuw, maar deze keer enk
 
 ```{r}
 
-data_habitat_2330_dw <- data_habitat_hs_id %>%
+data_habitat_2330_dw <- data_habitat_fs %>%
   filter(Habitattype == "2330_dw")
 
 lsvi_eenjarigen <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_2330_dw ,
-                         Data_voorwaarden = data_voorwaarden_hs_id %>%
+                         Data_voorwaarden = data_voorwaarden_fs %>%
                            semi_join(data_habitat_2330_dw, by = "ID"),
-                         Data_soortenKenmerken = data_soorten_kenm_hs_id %>%
+                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
                            semi_join(data_habitat_2330_dw, by = "ID") %>%
                            filter(Vegetatielaag == "kruidlaag" | is.na(Vegetatielaag)),
                          na.rm = TRUE)
@@ -485,17 +473,17 @@ lsvi_eenjarigen_vw <- lsvi_eenjarigen$Resultaat_detail %>%
 lsvi_eenjarigen_ind <- lsvi_eenjarigen$Resultaat_indicator %>%
   filter(Indicator == "éénjarigen")
 
-lsvi_hs_id$Resultaat_detail <- lsvi_hs_id$Resultaat_detail %>%
+lsvi_fs$Resultaat_detail <- lsvi_fs$Resultaat_detail %>%
   anti_join(lsvi_eenjarigen_vw, by = c("ID", "Indicator")) %>%
   bind_rows(lsvi_eenjarigen_vw) %>%
   arrange(ID, Habitattype, Criterium, Indicator)
 
-lsvi_hs_id$Resultaat_indicator <- lsvi_hs_id$Resultaat_indicator %>%
+lsvi_fs$Resultaat_indicator <- lsvi_fs$Resultaat_indicator %>%
   anti_join(lsvi_eenjarigen_ind, by = c("ID", "Indicator")) %>%
   bind_rows(lsvi_eenjarigen_ind) %>%
   arrange(ID, Habitattype, Criterium, Indicator)
 
-correct_status_globaal <- lsvi_hs_id$Resultaat_indicator %>%
+correct_status_globaal <- lsvi_fs$Resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
   group_by(ID, Criterium) %>%
   mutate(weight_crit = 1/n()) %>%
@@ -512,7 +500,7 @@ correct_status_globaal <- lsvi_hs_id$Resultaat_indicator %>%
   ungroup() %>%
   select(ID, Habitattype, n_zb_ongunstig, aandeel_gunstig, status_habitatvlek, index_mean_ind, index_mean_crit)
 
-correct_status_criterium <- lsvi_hs_id$Resultaat_indicator %>%
+correct_status_criterium <- lsvi_fs$Resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
   group_by(ID, Habitattype, Criterium) %>%
   summarise(n_gunstig = sum(Status_indicator),
@@ -525,12 +513,12 @@ correct_status_criterium <- lsvi_hs_id$Resultaat_indicator %>%
   ungroup() %>%
   select(ID, Habitattype, Criterium, n_zb_ongunstig, aandeel_gunstig, status_criterium, index_mean_ind)
 
-lsvi_hs_id$Resultaat_globaal <- lsvi_hs_id$Resultaat_globaal %>%
+lsvi_fs$Resultaat_globaal <- lsvi_fs$Resultaat_globaal %>%
   left_join(correct_status_globaal, by = c("ID", "Habitattype")) %>%
   mutate(Status = status_habitatvlek) %>%
   select(-status_habitatvlek)
 
-lsvi_hs_id$Resultaat_criterium <- lsvi_hs_id$Resultaat_criterium %>%
+lsvi_fs$Resultaat_criterium <- lsvi_fs$Resultaat_criterium %>%
   left_join(correct_status_criterium, by = c("ID", "Habitattype", "Criterium")) %>%
   mutate(Status_criterium = status_criterium) %>%
   select(-status_criterium)
@@ -545,7 +533,7 @@ lsvi_hs_id$Resultaat_criterium <- lsvi_hs_id$Resultaat_criterium %>%
 ### Check missing voorwaarden
 
 ```{r}
-missing_voorwaarde <- lsvi_hs_id$Resultaat_detail %>%
+missing_voorwaarde <- lsvi_fs$Resultaat_detail %>%
   group_by(Habitattype, Voorwaarde) %>%
   mutate(n_totaal = n()) %>%
   ungroup() %>%
@@ -567,7 +555,7 @@ missing_voorwaarde %>%
 ### Check missing belang
 
 ```{r}
-missing_belang <- lsvi_hs_id$Resultaat_detail %>%
+missing_belang <- lsvi_fs$Resultaat_detail %>%
   filter(is.na(Belang)) %>%
   distinct(Habitattype, Voorwaarde, Belang)
 ```
@@ -580,13 +568,13 @@ missing_belang %>%
 ### Preview
 
 ```{r}
-lsvi_hs_id$Resultaat_globaal %>%
+lsvi_fs$Resultaat_globaal %>%
   ggplot(aes(fill = Status, x = Habitattype)) +
   geom_bar()
 ```
 
 ```{r}
-lsvi_hs_id$Resultaat_criterium %>%
+lsvi_fs$Resultaat_criterium %>%
   ggplot(aes(fill = Status_criterium, x = Criterium)) +
   geom_bar() +
   facet_wrap(~Habitattype) +
@@ -594,7 +582,7 @@ lsvi_hs_id$Resultaat_criterium %>%
 ```
 
 ```{r, fig.width=9}
-lsvi_hs_id$Resultaat_indicator %>%
+lsvi_fs$Resultaat_indicator %>%
   ggplot(aes(fill = Status_indicator, x = Indicator)) +
   geom_bar() +
   facet_wrap(~Habitattype, scales = "free", ncol = 2) +
@@ -607,7 +595,7 @@ lsvi_hs_id$Resultaat_indicator %>%
 
 output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/result") 
 
-lsvi_hs_id %>%
-  write_lsvi_results(path = output_path, suffix = "_hs_id")
+lsvi_fs %>%
+  write_lsvi_results(path = output_path, suffix = "_fs")
 ```
 

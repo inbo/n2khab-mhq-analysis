@@ -24,6 +24,14 @@ overzicht_lsvi %>%
 
 ## Invoergegevens
 
+Vragen:
+
+Gebruiken we voor de analyse ook de data van de rapportage uit 2019 of is deze data niet vergelijkvaar met de huisige dataset?
+
+De coördinaten van de meetpunten die in 2024 werden opgemeten ontbreken nog.
+
+Voor de rapportage uit 2019 werden structuurvariabelen voor 1330_da bepaald op niveau van schor. Kunnen de structuurvariabelen (of deel ervan) opnieuw bepaald worden?. 
+
 ```{r}
 
 data_habitat_moneos <- data_habitat %>%
@@ -43,6 +51,7 @@ overview <- data_habitat_moneos %>%
   ungroup()
 
 data_voorwaarden_91E0_sf <- get_voorwaarden_91E0_sf(data_path = path_mhq_terr,
+                                                    data_path_extra_var = path_extra_var,
                                           record_ids = data_habitat_moneos$record_id_square)
 
 data_voorwaarden_1330_da <- get_voorwaarden_1330_da(data_path = path_mhq_terr)
@@ -90,35 +99,16 @@ Deze voorwaarden worden rechtstreeks op het terrein ingeschat en dus niet afgele
 
 De voorwaarden 'aantal groeiklassen aanwezig' en 'groeiklasse 5, 6 of 7 aanwezig' wordt afgeleid uit de genoteerde bedekking per groeiklasse.
 
+De voorwaarde bosconstantie: voorlopig zelfde manier als rapportage 2019, want voorlopig (?) geen andere gegevens. 
+
+ + Gunstig als bos ontstaan is voor 1930
+ + NA als bos ontstaan is na 1930 (we kunnen dan niet weten of het bos ouder is dan 30 jaar)
+
+Miniumum structuurareaal: voorlopig zelfde manier als rapportage 2019. Komt er nog een update van de berekening?
+
 De volgende voorwaarde kon niet bepaald worden en wordt daarom niet meegerekend in de verdere analyse:
 
 * aandeel overstromende vloeden.
-
-Voorwaarde bosconstantie: gunstig indien bosleeftijd > 30 jaar.
-Hoe bepalen?
-
-Miniumum structuurareaal. 
-
-```{r}
-
-coordinates_91E0_sf <- coordinates_91E0_sf %>%
-  filter(str_detect(plot_pl, "a")) %>%
-  select(plot_id, x, y)
-
-data_habitat_91E0_sf <- data_habitat_moneos %>%
-  filter(type_observed == "91E0_sf") %>%
-  select(ID, record_id_square, plot_id, date, type_observed) %>%
-  left_join(coordinates_91E0_sf, by = "plot_id")
-
-data_path_extravar <- file.path(fileman_up("n2khab-mhq-data"), "/raw")
-
-plot_coord <- data_habitat_91E0_sf %>%
-    filter(!is.na(x)) %>%
-    st_as_sf(coords = c("x", "y"), crs = 31370)
-
-
-```
-
 
 ### Voorwaarden berekend door rekenmodule
 
@@ -173,13 +163,17 @@ Deze plot laten we weg uit de analyse.
 Bij 91E0_sf zijn er een aantal meetpunten waar de voorwaarde 'aantal exemplaren dik dood hout per ha' niet werd bepaald.
 We veronderstellen hiervoor een nulwaarnemingen. 
 
+Bij 91E0_sf ontbreken de waarde voor MSA vaak omdat er onvoldoende gedetailleerde informatie is.
+De waarde van MSA ontbreekt voor de plots waar de coördinaten nog ontbrejen (opnames 2024).
+
 ```{r}
 
 data_voorwaarden_moneos <- check_voorwaarden %>%
   filter(!all_missing) %>%
-  mutate(Waarde = ifelse(is.na(Waarde), 0, Waarde)) %>%
+  mutate(Waarde = ifelse(is.na(Waarde) & Voorwaarde == "aantal exemplaren dik dood hout per ha", 0, Waarde)) %>%
   select(ID, record_id, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
-  unique() 
+  unique() %>%
+  filter(!is.na(Waarde))
 
 data_habitat_moneos <- data_habitat_moneos %>%
   anti_join(plots_all_missing, by = "ID")

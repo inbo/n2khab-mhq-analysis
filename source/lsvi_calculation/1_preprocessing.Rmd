@@ -31,6 +31,8 @@ path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq
 
 path_mhq_terr_raw <- file.path(fileman_up("n2khab-mhq-data"), "raw/structure_variables")
 
+path_extra_var <- file.path(fileman_up("n2khab-mhq-data"), "processed/extra_var_mhq")
+
 classif_mhq_inbo <- get_type_inboveg(path_mhq_terr)
 
 header_mhq_inbo <- get_header(path_mhq_terr)
