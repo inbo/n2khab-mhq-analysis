@@ -63,6 +63,21 @@ pq_mhq_anb <- classif_mhq_anb %>%
   semi_join(vegetation_mhq_anb, by = c("plot_id", "date_assessment"))
 ```
 
+## VBI data
+
+```{r}
+
+path_vbi <- file.path(fileman_up("n2khab-mhq-data"), "processed/dwh_vbi")
+
+classif_vbi <- read_vc(root = path_vbi, file = "type_observed")
+
+classif_vbi <- classif_vbi %>%
+  mutate(survey = "vbi",
+         ID = str_c(plot_id, "_", vbi_cycle),
+         record_id_square = ID,
+         record_id_circle = ID)
+```
+
 ## Merge ANB and INBO data
 
 ```{r}

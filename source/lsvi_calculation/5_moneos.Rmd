@@ -26,11 +26,11 @@ overzicht_lsvi %>%
 
 Vragen:
 
-Gebruiken we voor de analyse ook de data van de rapportage uit 2019 of is deze data niet vergelijkvaar met de huisige dataset?
+Gebruiken we voor de analyse ook de data van de rapportage uit 2019 of is deze data niet vergelijkvaar met de huidige dataset --> MONEOS plot
 
 De coördinaten van de meetpunten die in 2024 werden opgemeten ontbreken nog.
 
-Voor de rapportage uit 2019 werden structuurvariabelen voor 1330_da bepaald op niveau van schor. Kunnen de structuurvariabelen (of deel ervan) opnieuw bepaald worden?. 
+Voor de rapportage uit 2019 werden structuurvariabelen voor 1330_da bepaald op niveau van schor. Kunnen de structuurvariabelen (of deel ervan) opnieuw bepaald worden -> ja, na midden oktober
 
 ```{r}
 
@@ -108,7 +108,8 @@ Miniumum structuurareaal: voorlopig zelfde manier als rapportage 2019. Komt er n
 
 De volgende voorwaarde kon niet bepaald worden en wordt daarom niet meegerekend in de verdere analyse:
 
-* aandeel overstromende vloeden.
+* aandeel overstromende vloeden
+WEL gegevens, behalve voor de plots aan de Maas (normaal gezien dit najaar wel)
 
 ### Voorwaarden berekend door rekenmodule
 
@@ -160,11 +161,13 @@ Bij plot '1338805_2018-06-28' (1330_da) ontbreken alle structuurvariabelen.
 De target habitat van deze plot was 1330_hpr.
 Deze plot laten we weg uit de analyse.
 
-Bij 91E0_sf zijn er een aantal meetpunten waar de voorwaarde 'aantal exemplaren dik dood hout per ha' niet werd bepaald.
+Bij 91E0_sf zijn er een aantal meetpunten waar de voorwaarde 'aantal exemplaren dik dood hout per ha' niet werd bepaald --> nakijken
 We veronderstellen hiervoor een nulwaarnemingen. 
 
 Bij 91E0_sf ontbreken de waarde voor MSA vaak omdat er onvoldoende gedetailleerde informatie is.
-De waarde van MSA ontbreekt voor de plots waar de coördinaten nog ontbrejen (opnames 2024).
+De waarde van MSA ontbreekt voor de plots waar de coördinaten nog ontbreken (opnames 2024).
+
+Bosconstantie op basis van vegetatiekaart 
 
 ```{r}
 
@@ -220,7 +223,7 @@ data_soorten_kenm_moneos <- data_soorten_kenm_moneos %>%
 
 ```
 
-Een 10-tal metingen voor 1330_da bevatten geen vegetatie.
+Een 10-tal metingen voor 1330_da bevatten geen vegetatie --> doorgeven aan Bart
 
 ```{r}
 missing_cover %>%
@@ -228,12 +231,17 @@ missing_cover %>%
   arrange(ID) %>%
   datatable(rownames = FALSE,
             filter = "top")
+
+missing_cover %>%
+  select(ID, survey, recording_givid = record_id, date) %>%
+  write_csv2("../../output/plots_1330_da_zondervegetatie.csv")
+  
 ```
 
-Volgende soorten worden zowel in de vierkante als de cirkelplot bepaald:
+Voor volgende soorten worden ook de voorjaarsbedekking:
 
-+ Caltha palustris (dotterbloem)
-+ Cardamine amara (bitter veldkers)
++ Caltha palustris (dotterbloem) --> sleutelsoort!
++ Cardamine amara (bittere veldkers)
 
 De rekenmodule geeft een foutmelding als er in eenzelfde opname en vegetatielaag meerdere bedekkingen zijn van dezelfde soort.
 Indien een van bovenstaande soorten in beide proefvlakken aanwezig is, selecteren we daarom de maximum bedekking.
@@ -257,7 +265,7 @@ sleutelsoorten_91E0_sf <- geefSoortenlijstVoorIDs(Taxongroeplijst = "72")
 ```
 
 Enkel 'Caltha palustris var. araneosa' (spindotterbloem) wordt door de rekenmodule als sleutelsoort meegerekend en dus niet 'Caltha palustris' 'Caltha palustris' wordt enkel in de cirkelplot waargenomen.
-Om welke variëtetit gaat het?
+Om welke variëtetit gaat het? -> 'Caltha palustris var. araneosa' 
 
 ## TEST 91E0_sf
 
@@ -325,7 +333,7 @@ lsvi_moneos  <- berekenLSVIbasis(Versie = "Versie 3",
 
 ### Manuele correctie
 
-De indicator 'verruiging' van habitatsubtype 1330_da is enkel van toepassing voor zoutwaterschor. Gezien alle meetpunten in brakwaterschor gelegen zijn, wordt deze indicator niet meegerekend in de analyse.
+De indicator 'verruiging' van habitatsubtype 1330_da is enkel van toepassing voor zoutwaterschor. Gezien alle meetpunten in brakwaterschor gelegen zijn, wordt deze indicator niet meegerekend in de analyse. -> nakijken
 
 De indicator 'sleutelsoorten' bestaat uit twee voorwaarden: 'aantal sleutelsoorten hoog schor' en 'aantal sleutelsoorten laag schor'. De indicator is gunstig als beide voorwaarden gunstig scoren. De indicator wordt echter beoordeeld op basis van een vegetatieopname in een plot van 3m x 3m die ofwel in hoog schor ofwel in laag schor gelegen is, waardoor er niet aan beide voorwaarden kan worden voldaan. Daarom beoordelen we in deze analyse de indicator 'sleutelsoorten' als gunstig wanneer (minstens) één van beide voorwaarden gunstig scoort.
 

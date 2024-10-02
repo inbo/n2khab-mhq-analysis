@@ -15,6 +15,9 @@ mhq_assessments <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025
 
 mhq_refpoints <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
                              file = "mhq_terr_refpoints")
+
+mhq_popunits <- read_vc(root = file.path(path_admin, "mhq_terr"),
+                             file = "mhq_terr_popunits")
 ```
 
 ## Strata

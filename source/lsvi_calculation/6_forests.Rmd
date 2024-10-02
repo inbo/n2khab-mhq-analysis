@@ -38,17 +38,18 @@ data_habitat_mhq_fs <- data_habitat %>%
   filter(is_maintype_target) %>%
   filter(type_observed != "91E0_sf")
 
-check <- data_habitat_mhq_fs %>%
-  group_by(ID) %>%
-  filter(n() > 1)
+data_habitat_vbi <- classif_vbi
 
 data_voorwaarden_fs <- get_voorwaarden_fs(data_path = path_mhq_anb,
                                           data_path_extra_var = path_extra_var,
                           record_ids = c(data_habitat_mhq_fs$record_id_square))
 
-data_soorten_kenm_fs <- get_soorten_kenmerken(data_path_inboveg = path_mhq_terr,
-                                                 data_path_fieldmap = path_mhq_anb,
+data_soorten_kenm_mhq <- get_soorten_kenmerken_fs(data_path = path_mhq_anb,
                          record_ids =  data_habitat_mhq_fs$record_id_square)
+
+data_soorten_kenm_vbi <- get_soorten_kenmerken_fs(data_path = path_vbi,
+                         record_ids =  data_habitat_vbi$record_id_square,
+                         data_type = "vbi")
 ```
 
 ## Berekening voorwaarden

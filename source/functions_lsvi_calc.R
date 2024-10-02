@@ -37,9 +37,20 @@ get_cover_veglayers_fieldmap <- function(data_path, record_ids = NULL) {
 
   veglayers <- read_vc(root = data_path, file = "cover_veglayers")
 
-  cover_veglayers <- veglayers %>%
-    mutate(record_id = str_c(plot_id, "_", date_assessment)) %>%
-    select(record_id, layer, cover)
+  if ("date_assessment" %in% colnames(veglayers)) {
+
+    cover_veglayers <- veglayers %>%
+      mutate(record_id = str_c(plot_id, "_", date_assessment),
+             cover = ifelse(is.na(cover), cover_mean, cover)) %>%
+      select(record_id, layer, cover)
+
+  } else if ("vbi_cycle" %in% colnames(veglayers)) {
+
+    cover_veglayers <- veglayers %>%
+      mutate(record_id = str_c(plot_id, "_", vbi_cycle)) %>%
+      select(record_id, layer, cover = cover_mean)
+
+  }
 
   if (is.null(record_ids)) {
 
@@ -85,8 +96,19 @@ get_cover_species <- function(data_path, record_ids = NULL) {
 
 get_cover_species_fieldmap <- function(data_path, record_ids = NULL) {
 
-  species <- read_vc(root = data_path, file = "cover_species") %>%
-    mutate(record_id = str_c(plot_id, "_", date_assessment))
+  species <- read_vc(root = data_path, file = "cover_species")
+
+  if ("date_assessment" %in% colnames(species)) {
+
+    species <- species %>%
+      mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  } else if ("vbi_cycle" %in% colnames(species)) {
+
+    species <- species %>%
+      mutate(record_id = str_c(plot_id, "_", vbi_cycle))
+
+  }
 
   if (is.null(record_ids)) {
 
@@ -110,7 +132,7 @@ get_cover_species_fieldmap <- function(data_path, record_ids = NULL) {
 get_structure_var <- function(data_path, record_ids = NULL){
 
   structure_var <- read_vc(root = data_path, file = "structure_mhq_terr") %>%
-    select(recording_givid, structure_var, cover)
+    select(recording_givid, structure_var, cover, cover_code)
 
   if (is.null(record_ids)) {
 
@@ -176,13 +198,45 @@ get_structure_1330_da <- function(data_path, plot_ids = NULL){
 }
 
 ###############################################################################
+### analysis var vbi
+###############################################################################
+
+get_analysis_var_vbi <- function(data_path, record_ids = NULL){
+
+  analysis_var <- read_vc(root = data_path, file = "analysis_variable") %>%
+    mutate(record_id = str_c(plot_id, "_", vbi_cycle))
+
+  if (is.null(record_ids)) {
+
+    result <- analysis_var
+
+  } else {
+
+    result <- analysis_var %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
 ### bomen in a3 en a4 plot
 ###############################################################################
 
-get_trees_a3a4 <- function(data_path, record_ids = NULL) {
+get_trees_a3a4 <- function(data_path, record_ids = NULL, data_type = "mhq") {
 
-  trees_a3a4 <- read_vc(file = "trees_a3a4", root = data_path) %>%
-    mutate(record_id = str_c(plot_id, "_", date_assessment))
+  if (data_type == "mhq") {
+
+    trees_a3a4 <- read_vc(file = "trees_a3a4", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  } else if (data_type == "vbi") {
+
+    trees_a3a4 <- read_vc(file = "trees_a3a4", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", vbi_cycle))
+
+  }
 
   if (is.null(record_ids)) {
 
@@ -191,6 +245,38 @@ get_trees_a3a4 <- function(data_path, record_ids = NULL) {
   } else {
 
     result <- trees_a3a4 %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
+### plotweights
+###############################################################################
+
+get_plot_weights <- function(data_path, record_ids = NULL, data_type = "mhq") {
+
+  if (data_type == "mhq") {
+
+    plot_weights <- read_vc(file = "plot_weight", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  } else if (data_type == "vbi") {
+
+    plot_weights <- read_vc(file = "plot_weight", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", vbi_cycle))
+
+  }
+
+  if (is.null(record_ids)) {
+
+    result <- plot_weights
+
+  } else {
+
+    result <- plot_weights %>%
       filter(record_id %in% record_ids)
 
   }
@@ -456,8 +542,11 @@ get_voorwaarden_91E0_sf <- function(data_path,
     filter(structure_var %in% c("aandeel dood hout", "hoeveelheid dik dood hout",
                                 "sleutelsoorten boom- en struiklaag")) %>%
     mutate(structure_var = ifelse(structure_var == "sleutelsoorten boom- en struiklaag",
-                                  "sleutelsoorten van de boom- en struiklaag", structure_var)) %>%
-    rename(Indicator = structure_var, Waarde = cover) %>%
+                                  "sleutelsoorten van de boom- en struiklaag", structure_var),
+           Waarde = ifelse(structure_var == "hoeveelheid dik dood hout",
+                           as.numeric(cover_code),
+                           cover)) %>%
+    rename(Indicator = structure_var) %>%
     inner_join(vw_91E0_sf, by = "Indicator") %>%
     select(record_id = recording_givid, Criterium, Indicator ,
            Voorwaarde, Waarde, Type, Eenheid, Invoertype)
@@ -518,41 +607,30 @@ get_voorwaarden_91E0_sf <- function(data_path,
 
 get_voorwaarden_fs <- function(data_path,
                                     data_path_extra_var,
+                                    data_type = "vbi",
                                     record_ids = NULL) {
 
   vw_forests <- geefInvoervereisten(Versie = "Versie 3",
                                     Habitatgroep = "Bossen en struwelen") %>%
-    select(Habitatsubtype, Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
+    distinct(Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
 
-  voorwaarden <- get_structure_var_fieldmap(data_path, record_ids) %>%
-    filter(structure_var %in% c("aandeel dood hout", "hoeveelheid dik dood hout",
-                                "sleutelsoorten boom- en struiklaag")) %>%
-    mutate(structure_var = ifelse(structure_var == "sleutelsoorten boom- en struiklaag",
-                                  "sleutelsoorten van de boom- en struiklaag", structure_var)) %>%
-    rename(Indicator = structure_var, Waarde = cover) %>%
-    inner_join(vw_91E0_sf, by = "Indicator") %>%
-    select(record_id = recording_givid, Criterium, Indicator ,
+  dead_wood <- calc_dead_wood(data_path, data_type = data_type, record_ids) %>%
+    filter(variable %in% c("prop_dead_wood", "n_big_dead_ha")) %>%
+    mutate(Voorwaarde = ifelse(variable == "prop_dead_wood", "aandeel dood hout",
+                               ifelse(variable == "n_big_dead_ha", "aantal exemplaren dik dood hout per ha", NA)),
+           Waarde = value,
+           ID = record_id) %>%
+    inner_join(vw_forests, by = c("Voorwaarde")) %>%
+    select(record_id, plot_id, vbi_cycle, Criterium, Indicator ,
            Voorwaarde, Waarde, Type, Eenheid, Invoertype)
 
-  header <- get_header(data_path, record_ids) %>%
-    select(record_id, vague_date_begin)
-
-  site_qualifier <- get_site_qualifier(data_path, record_ids) %>%
-    left_join(header, by = "record_id") %>%
-    mutate(ID = str_c(plot_id, "_", vague_date_begin)) %>%
-    select(record_id, ID, plot_id)
-
-  voorwaarden <- voorwaarden %>%
-    left_join(site_qualifier, by = "record_id") %>%
-    select(-plot_id)
-
-  bosconstantie <- read_vc(root = data_path_extra_var, file = "bosconstantie_91E0_sf")
+  bosconstantie <- read_vc(root = data_path_extra_var, file = "bosconstantie_vbi")
 
   vw_bosconstantie <- bosconstantie  %>%
     mutate(Indicator = "bosconstantie") %>%
     select(plot_id, Indicator, Waarde = bosconstantie)
 
-  msa <- read_vc(root = data_path_extra_var, file = "msa_91E0_sf")
+  msa <- read_vc(root = data_path_extra_var, file = "msa_vbi")
 
   vw_msa <- msa  %>%
     mutate(Indicator = "minimum structuurareaal") %>%
@@ -1000,26 +1078,63 @@ get_soorten_kenmerken_moneos <- function(data_path, record_ids = NULL) {
   return(result)
 }
 
-get_soorten_kenmerken_fs <- function(data_path, record_ids = NULL, niveau = "plot", inventory = "VBI2"){
+###############################################################################
+### soorten kenmerken forests
+###############################################################################
+
+get_soorten_kenmerken_fs <- function(data_path, record_ids = NULL, data_type = "mhq"){
 
   cover_species <- get_soorten_kenmerken(data_path_fieldmap = data_path, record_ids = NULL)
-    #data_grondvlak <- berekenLevendHoutSoort(db = db,  plotIDs = plotHabtypes$IDPlots, niveau = "segment")
 
-  data_groeiklassen <- calc_growth_classes(data_path, record_ids)
+  if (data_type == "mhq") {
 
-  data_vegetatielagen <- get_cover_veglayers_fieldmap(data_path, record_ids)
+    growth_classes <- calc_growth_classes(data_path, record_ids) %>%
+      mutate(ID = record_id)
 
-      result <- bind_rows(data_soorten,
-                          #data_grondvlak,
-                          data_groeiklassen,
-                          data_vegetatielagen) %>%
-        mutate(ID = paste(substr(databank, 1, 3), IDPlots, ifelse(databank == "VBI2", "_2", "") , sep = "")) %>%
-        select(ID, IDPlots, everything() ) %>%
-        arrange(ID)
+  } else if (data_type == "vbi") {
 
-      return(result)
+    growth_classes <- calc_growth_classes_vbi(data_path, record_ids) %>%
+      mutate(ID = record_id)
 
-    }
+  }
+
+  veglayers <- get_cover_veglayers_fieldmap(data_path, record_ids) %>%
+    pivot_wider(names_from = "layer", values_from = cover)
+
+  if (!"mosslayer" %in% colnames(veglayers)) {
+
+    veglayers <- veglayers %>%
+      mutate(mosslayer = 0)
+
+  }
+
+  veglayers <- veglayers %>%
+    mutate("kruidlaag (incl. moslaag)" = pmin(100, herblayer + mosslayer)) %>%
+    rename(struiklaag = shrublayer, boomlaag = treelayer) %>%
+    select(-herblayer, -mosslayer) %>%
+    pivot_longer(cols = c("boomlaag", "struiklaag", "kruidlaag (incl. moslaag)"),
+                 names_to = "Kenmerk", values_to = "Waarde") %>%
+    mutate(TypeKenmerk = "studiegroep",
+           Eenheid = "%",
+           Type = "Percentage",
+           ID = record_id)
+
+  result <- bind_rows(cover_species,
+                      growth_classes,
+                      veglayers) %>%
+        arrange(ID) %>%
+        select(ID, record_id, Vegetatielaag, Kenmerk, TypeKenmerk, Waarde, Type, Eenheid, Invoertype)
+
+  if (!is.null(record_ids)) {
+
+    result <- result %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+
+  }
 
 ###############################################################################
 ### groeiklassen
@@ -1095,6 +1210,196 @@ calc_growth_classes <- function(data_path, record_ids = NULL){
   }
 
   return(growth_classes)
+
+}
+
+###############################################################################
+### groeiklassen vbi
+###############################################################################
+
+calc_growth_classes_vbi <- function(data_path, record_ids = NULL){
+
+  # groeiklasse 4 tot groeiklasse 6 leiden we af uit A3A4 bomen
+
+  trees_a3a4 <- get_trees_a3a4(data_path, record_ids, data_type = "vbi")
+
+  #hakhout nakijken, maar geen gegevens over loten in analysedb
+
+  # groeiklassen voor levende bomen (dode bomen rekenen we niet mee)
+  growth_class_4_5_6_7 <- trees_a3a4 %>%
+    filter(is.na(status_tree) | status_tree == "alive") %>%
+    group_by(record_id, plot_id, vbi_cycle) %>%
+    summarise(groeiklasse4 = sum(dbh_mm >= 70 & dbh_mm < 140, na.rm = TRUE) > 0,
+              groeiklasse5 = sum(dbh_mm >= 140 & dbh_mm < 500, na.rm = TRUE) > 0,
+              groeiklasse6 = sum(dbh_mm >= 500 & dbh_mm < 800, na.rm = TRUE) > 0,
+              groeiklasse7 = sum(dbh_mm >= 800, na.rm = TRUE) > 0) %>%
+    ungroup() %>%
+    pivot_longer(cols = starts_with("groeiklasse"), names_to = "growth_class", values_to = "value") %>%
+    mutate(value = as.numeric(value))
+
+  analysis_var_vbi <- get_analysis_var_vbi(data_path, record_ids)
+
+  #groeiklasse3 komt overeen met A2-boom
+  #groeiklasse2 = natuurlijke verjonging (boomsoort in kruidlaag)
+
+  growth_class_2_3 <- analysis_var_vbi %>%
+    filter(variable %in% c("natural_reg", "stem_density_a2_ha")) %>%
+    mutate(growth_class = ifelse(variable == "natural_reg", "groeiklasse2",
+                                 ifelse(variable == "stem_density_a2_ha", "groeiklasse3", NA))) %>%
+    group_by(plot_id, record_id, vbi_cycle, growth_class) %>%
+    summarise(value = ifelse(sum(value) > 0, 1, 0)) %>%
+    ungroup()
+
+
+  growth_classes <- growth_class_4_5_6_7 %>%
+    bind_rows(growth_class_2_3) %>%
+    rename(Kenmerk = growth_class, Waarde = value) %>%
+    mutate(TypeKenmerk = "studiegroep",
+           Type = "Ja/nee",
+           Eenheid = NA) %>%
+    arrange(record_id, Kenmerk)
+
+  if (!is.null(record_ids)) {
+
+    growth_classes <- growth_classes %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(growth_classes)
+
+}
+
+
+###############################################################################
+### grondvlak
+###############################################################################
+
+calc_basal_area <- function(data_path, record_ids = NULL, per_segment = FALSE, unit = "Grondvlak_ha"){
+
+  trees_a3a4 <- get_trees_a3a4(data_path, record_ids)
+
+  if(!per_segment){
+
+      plotsize_adj <- trees_a3a4 %>%
+        group_by(plot_id, segment_id) %>%
+        summarise(AreaA4_m2_segment = unique(AreaA4_m2),
+                  AreaA3_m2_segment = unique(AreaA3_m2)) %>%
+        group_by(IDPlots) %>%
+        summarise(AreaA4_m2 = sum(AreaA4_m2_segment),
+                  AreaA3_m2 = sum(AreaA3_m2_segment))
+
+      treesA3A4 <- treesA3A4 %>%
+        mutate(IDSegments = 1) %>%
+        select(-AreaA4_m2, -AreaA3_m2) %>%
+        left_join(plotSize_adj, by = "IDPlots")
+    }
+
+    shoots <- getShootsVBI2(db = db, plotIDs = plotIDs)
+
+    treesA3A4_Vol <-  calculateVolumeAndBasalArea(treesA3A4, shoots, dbExterneData = dbVBIExterneData)
+
+  # } else if(databank == "VBI2"){
+  #
+  #   treesA3A4 <- getTreesA3A4VBI2(db = db, plotIDs = plotIDs)
+  #
+  #   if(niveau == "plot"){
+  #
+  #     plotSize_adj <- treesA3A4 %>%
+  #       group_by(IDPlots, IDSegments) %>%
+  #       summarise(AreaA4_m2_segment = unique(AreaA4_m2),
+  #                 AreaA3_m2_segment = unique(AreaA3_m2)) %>%
+  #       group_by(IDPlots) %>%
+  #       summarise(AreaA4_m2 = sum(AreaA4_m2_segment),
+  #                 AreaA3_m2 = sum(AreaA3_m2_segment))
+  #
+  #     treesA3A4 <- treesA3A4 %>%
+  #       mutate(IDSegments = 1) %>%
+  #       select(-AreaA4_m2, -AreaA3_m2) %>%
+  #       left_join(plotSize_adj, by = "IDPlots")
+  #
+  #   }
+  #   shoots <- getShootsVBI2(db = db, plotIDs = plotIDs)
+  #
+  #   treesA3A4_Vol <-  calculateVolumeAndBasalArea(treesA3A4, shoots, dbExterneData = dbVBIExterneData)
+  #
+  # } else if(databank == "VBI1"){
+  #
+  #   treesA3A4 <- getTreesA3A4VBI1(db = db, plotIDs = plotIDs)
+  #   shoots <- getShootsVBI1(db = db, plotIDs = plotIDs)
+  #
+  #   treesA3A4_Vol <-  calculateVolumeAndBasalAreaVBI1(treesA3A4, shoots, dbExterneData = dbVBIExterneData)
+  #
+  # }
+  #
+  # levendHoutSoort <- treesA3A4_Vol %>%
+  #   group_by(IDPlots, IDSegments, NameSc) %>%
+  #   summarise(Volume_ha = sum(Volume_ha * (StatusTree == "levend"), na.rm = TRUE),
+  #             Grondvlak_ha = sum(BasalArea_ha  * (StatusTree == "levend"), na.rm =TRUE)) %>%
+  #   ungroup() %>%
+  #   gather(Volume_ha, Grondvlak_ha, key = Eenheid, value = Waarde) %>%
+  #   rename(Kenmerk = NameSc) %>%
+  #   mutate(TypeKenmerk = "soort_latijn",
+  #          Type = "Decimaal getal" ,
+  #          Kenmerk = as.character(Kenmerk),
+  #          ID = paste(substr(databank, 1, 3), IDPlots, ifelse(databank == "VBI2", "_2",
+  #                                                             ifelse(databank == "VBI1", "_1", "")), sep =""),
+  #          Vegetatielaag = "boomlaag") %>%
+  #   filter(Eenheid == eenheid)
+
+  return(levendHoutSoort)
+
+}
+
+###############################################################################
+### dead wood
+###############################################################################
+
+calc_dead_wood <- function(data_path,
+                               record_ids = NULL,
+                               data_type = "mhq") {
+
+  trees_a3a4 <- get_trees_a3a4(data_path, record_ids, data_type)
+
+  plot_weights <- get_plot_weights(data_path, record_ids, data_type)
+
+  if (data_type == "vbi") {
+
+    proportion_dead_wood <- get_analysis_var_vbi(data_path, record_ids) %>%
+      filter(variable %in% c("logs_vol", "snags_vol",
+                             "alive_vol")) %>%
+      left_join(select(plot_weights, plot_id, segment_id, vbi_cycle, segment_weight), by = c("plot_id", "segment_id", "vbi_cycle")) %>%
+      group_by(record_id, plot_id, vbi_cycle, variable) %>%
+      summarise(value_plot = sum(value * segment_weight)) %>%
+      ungroup() %>%
+      pivot_wider(names_from = "variable", values_from = "value_plot") %>%
+      mutate(prop_dead_wood = ifelse((snags_vol + logs_vol + alive_vol) == 0, NA,
+                                    (snags_vol + logs_vol) / (snags_vol + logs_vol + alive_vol) * 100),
+             prop_dead_wood_standing = ifelse((snags_vol + alive_vol) == 0, NA,
+                                              (snags_vol) / (snags_vol + alive_vol) * 100)) %>%
+      select(record_id, plot_id, vbi_cycle, prop_dead_wood, prop_dead_wood_standing) %>%
+      pivot_longer(cols = c("prop_dead_wood", "prop_dead_wood_standing"), names_to = "variable",
+                   values_to = "value")
+
+  }
+
+  plot_weights <- plot_weights %>%
+    distinct(record_id, plot_id, vbi_cycle, area_a3_m2_plot, area_a4_m2_plot)
+
+  big_dead_wood <- trees_a3a4 %>%
+    left_join(plot_weights, by = c("record_id", "plot_id", "vbi_cycle")) %>%
+    group_by(record_id, plot_id, vbi_cycle, area_a4_m2_plot) %>%
+    summarise(n_big_dead = sum((dbh_mm > 400) * (status_tree == "dead"), na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(value = n_big_dead * 10000 / area_a4_m2_plot,
+           variable = "n_big_dead_ha") %>%
+    select(record_id, plot_id, vbi_cycle, variable, value)
+
+  dead_wood_var <- proportion_dead_wood %>%
+    bind_rows(big_dead_wood) %>%
+    arrange(plot_id, vbi_cycle)
+
+return(dead_wood_var)
 
 }
 
