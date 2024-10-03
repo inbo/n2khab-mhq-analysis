@@ -38,11 +38,16 @@ data_habitat_mhq_fs <- data_habitat %>%
   filter(is_maintype_target) %>%
   filter(type_observed != "91E0_sf")
 
-data_habitat_vbi <- classif_vbi
+data_habitat_vbi <- classif_vbi %>%
+  mutate(plot_id = as.character(plot_id))
 
-data_voorwaarden_fs <- get_voorwaarden_fs(data_path = path_mhq_anb,
+data_habitat_fs <- data_habitat_mhq_fs %>%
+  bind_rows(data_habitat_vbi)
+
+data_voorwaarden_vbi <- get_voorwaarden_fs(data_path = path_vbi,
                                           data_path_extra_var = path_extra_var,
-                          record_ids = c(data_habitat_mhq_fs$record_id_square))
+                                          data_type = "vbi",
+                                          data_habitat = data_habitat_vbi)
 
 data_soorten_kenm_mhq <- get_soorten_kenmerken_fs(data_path = path_mhq_anb,
                          record_ids =  data_habitat_mhq_fs$record_id_square)
@@ -50,6 +55,51 @@ data_soorten_kenm_mhq <- get_soorten_kenmerken_fs(data_path = path_mhq_anb,
 data_soorten_kenm_vbi <- get_soorten_kenmerken_fs(data_path = path_vbi,
                          record_ids =  data_habitat_vbi$record_id_square,
                          data_type = "vbi")
+
+data_soorten_kenm_fs <- data_soorten_kenm_mhq %>%
+  bind_rows(data_soorten_kenm_vbi)
+
+data_habitat_vbi_91E0_vc <- data_habitat_vbi %>%
+  filter(type_observed == "91E0_vc")
+
+data_habitat_vbi_other <- data_habitat_vbi %>%
+  filter(type_observed != "91E0_vc")
+
+data_basalarea_vbi_other <- calc_basalarea_ha(data_path = path_vbi,
+                                               record_ids = data_habitat_vbi_other$record_id_square,
+                                               per_segment = TRUE)
+
+data_basalarea_vbi_91E0_vc <- calc_basalarea_ha(data_path = path_vbi,
+                                               record_ids = data_habitat_vbi_91E0_vc$record_id_square,
+                                               per_segment = FALSE)
+  
+cover_without_populus <- data_soorten_kenm_fs %>%
+  filter(!is.na(Vegetatielaag) & Vegetatielaag %in% c("boomlaag", "struiklaag")) %>%
+  group_by(ID) %>%
+  mutate(popolus_present = any(str_sub(Kenmerk, 1, 7) == "Populus")) %>%
+  ungroup() %>%
+  filter(str_sub(Kenmerk, 1, 7) != "Populus") %>%
+  group_by(ID, popolus_present) %>%
+  summarise(cover_treelayer_nopop = (1 - prod(1 - Waarde/100, na.rm = TRUE)) * 100) %>%
+  ungroup()
+
+data_basalarea_fs <- data_basalarea_vbi_other %>%
+  bind_rows(data_basalarea_vbi_91E0_vc) %>%
+  filter(segment_id == 1) %>%
+  left_join(cover_without_populus, by = "ID") %>%
+  left_join(select(data_habitat_fs, ID, type_observed), by = "ID") %>%
+  mutate(Kenmerk = str_remove(Kenmerk, " species| spec"),
+         Kenmerk = ifelse(Kenmerk == "Quercus robur/petraea",
+                          "Quercus robur",
+                          ifelse(Kenmerk == "Betula tremula/alba",
+                                 ifelse(type_observed %in% c("9110", "9120", "9130", "9160", "91E0_vo", "91E0_vm"),
+                                        "Betula pendula",
+                                        "Betula pubescens"), 
+                                 ifelse(Kenmerk == "Lariks", 
+                                        "Larix", Kenmerk))),
+    remove_populus = (substr(Kenmerk, 1, 7) == "Populus") &
+           (substr(type_observed, 1, 4) == "91E0") &
+           ((!is.na(cover_treelayer_nopop)) & (cover_treelayer_nopop >= 70)))
 ```
 
 ## Berekening voorwaarden

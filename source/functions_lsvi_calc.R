@@ -285,6 +285,106 @@ get_plot_weights <- function(data_path, record_ids = NULL, data_type = "mhq") {
 }
 
 ###############################################################################
+### stand description
+###############################################################################
+
+get_stand_description <- function(data_path, record_ids = NULL, data_type = "mhq") {
+
+  if (data_type == "mhq") {
+
+    stand_description <- read_vc(file = "stand_description", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  } else if (data_type == "vbi") {
+
+    stand_description <- read_vc(file = "stand_description", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", vbi_cycle))
+
+  }
+
+  if (is.null(record_ids)) {
+
+    result <- stand_description
+
+  } else {
+
+    result <- stand_description %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
+### bosconstantie
+###############################################################################
+
+get_bosconstantie <- function(data_path_extra_var, record_ids = NULL, data_type = "mhq") {
+
+  if (data_type == "mhq") {
+
+    bosconstantie <- read_vc(file = "bosconstantie_mhq", root = data_path_extra_var) %>%
+      mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  } else if (data_type == "vbi") {
+
+    bosconstantie <- read_vc(file = "bosconstantie_vbi", root = data_path_extra_var) %>%
+      mutate(record_id = str_c(plot_id, "_", periode))
+
+  } else if (data_type == "91E0_sf") {
+
+    bosconstantie <- read_vc(file = "bosconstantie_91E0_sf", root = data_path_extra_var)
+
+  }
+
+  if (is.null(record_ids)) {
+
+    result <- bosconstantie
+
+  } else {
+
+    result <- bosconstantie %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
+### msa
+###############################################################################
+
+get_msa <- function(data_path_extra_var, record_ids = NULL, data_type = "mhq") {
+
+  if (data_type == "mhq") {
+
+    msa <- read_vc(file = "msa_mhq", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", date_assessment))
+
+  } else if (data_type == "vbi") {
+
+    msa <- read_vc(file = "msa_vbi", root = data_path) %>%
+      mutate(record_id = str_c(plot_id, "_", periode))
+
+  }
+
+  if (is.null(record_ids)) {
+
+    result <- msa
+
+  } else {
+
+    result <- msa %>%
+      filter(record_id %in% record_ids)
+
+  }
+
+  return(result)
+}
+
+###############################################################################
 ### bomen in a2 plot
 ###############################################################################
 
@@ -563,7 +663,7 @@ get_voorwaarden_91E0_sf <- function(data_path,
     left_join(site_qualifier, by = "record_id") %>%
     select(-plot_id)
 
-  bosconstantie <- read_vc(root = data_path_extra_var, file = "bosconstantie_91E0_sf")
+  bosconstantie <- get_bosconstantie(data_path_extra_var, data_type = data_type, record_ids)
 
   vw_bosconstantie <- bosconstantie  %>%
     mutate(Indicator = "bosconstantie") %>%
@@ -608,45 +708,68 @@ get_voorwaarden_91E0_sf <- function(data_path,
 get_voorwaarden_fs <- function(data_path,
                                     data_path_extra_var,
                                     data_type = "vbi",
-                                    record_ids = NULL) {
+                                    data_habitat) {
+
+  record_ids <- data_habitat$record_id_square
 
   vw_forests <- geefInvoervereisten(Versie = "Versie 3",
                                     Habitatgroep = "Bossen en struwelen") %>%
     distinct(Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
 
-  dead_wood <- calc_dead_wood(data_path, data_type = data_type, record_ids) %>%
+  vw_dead_wood <- calc_dead_wood(data_path, data_type = data_type, record_ids) %>%
     filter(variable %in% c("prop_dead_wood", "n_big_dead_ha")) %>%
     mutate(Voorwaarde = ifelse(variable == "prop_dead_wood", "aandeel dood hout",
                                ifelse(variable == "n_big_dead_ha", "aantal exemplaren dik dood hout per ha", NA)),
-           Waarde = value,
-           ID = record_id) %>%
-    inner_join(vw_forests, by = c("Voorwaarde")) %>%
-    select(record_id, plot_id, vbi_cycle, Criterium, Indicator ,
-           Voorwaarde, Waarde, Type, Eenheid, Invoertype)
+           Waarde = value)
 
-  bosconstantie <- read_vc(root = data_path_extra_var, file = "bosconstantie_vbi")
+  stand_age <- get_stand_description(data_path, data_type = data_type, record_ids) %>%
+    filter(variable == "stand_age") %>%
+    select(record_id, stand_age = category)
+
+  bosconstantie <- get_bosconstantie(data_path_extra_var, data_type = data_type, record_ids) %>%
+    select(record_id, blk)
 
   vw_bosconstantie <- bosconstantie  %>%
-    mutate(Indicator = "bosconstantie") %>%
-    select(plot_id, Indicator, Waarde = bosconstantie)
+    inner_join(stand_age, by = c("record_id")) %>%
+    mutate(Voorwaarde = "bosconstantie",
+           Waarde = ifelse(blk %in% c("Bos ontstaan voor 1775",
+                                      "Bos ontstaan tussen 1775 en 1850") |
+                             stand_age %in% c("101 - 120 jaar",
+                                              "121 - 140 jaar",
+                                              "141 - 160 jaar",
+                                              "> 160 jaar"),
+                           101,
+                           ifelse(blk %in% c("Bos ontstaan tussen 1850 en +/- 1930") |
+                                  stand_age %in% c("81 - 100 jaar"), 81,
+                                  ifelse(stand_age %in% c("41 - 60 jaar", "61 - 80 jaar"), 41, 20))),
+    ) %>%
+    select(record_id, Voorwaarde, Waarde)
 
-  msa <- read_vc(root = data_path_extra_var, file = "msa_vbi")
+  vw_mosaic <- stand_age %>%
+    mutate(Voorwaarde = "natuurlijke mozaïekstructuur",
+           Waarde = ifelse(stand_age == "ongelijkjarig", 1, 0)) %>%
+    select(record_id, Voorwaarde, Waarde)
 
-  vw_msa <- msa  %>%
-    mutate(Indicator = "minimum structuurareaal") %>%
-    select(plot_id, Indicator, Waarde = MSA)
+  data_habitat_type <- data_habitat %>%
+    select(record_id = record_id_square, type_observed)
 
-  vw_extra <- vw_bosconstantie %>%
+  vw_msa <- get_msa(data_path_extra_var, data_type = data_type, record_ids) %>%
+    select(record_id, type, MSA) %>%
+    left_join(data_habitat_type, by = "record_id", relationship = "many-to-many") %>%
+    filter(type == type_observed) %>%
+    mutate(Voorwaarde = "MSA") %>%
+    select(record_id, Voorwaarde, Waarde = MSA)
+
+  voorwaarden <- vw_dead_wood %>%
+    bind_rows(vw_bosconstantie) %>%
+    bind_rows(vw_mosaic) %>%
     bind_rows(vw_msa) %>%
-    left_join(site_qualifier, by = "plot_id") %>%
-    inner_join(vw_91E0_sf, by = "Indicator") %>%
+    inner_join(vw_forests, by = c("Voorwaarde")) %>%
+    mutate(ID = record_id) %>%
     select(ID, record_id, Criterium, Indicator ,
-           Voorwaarde, Waarde, Type, Eenheid, Invoertype)
-
-  voorwaarden <- voorwaarden %>%
-    bind_rows(vw_extra) %>%
-    arrange(ID)
-
+           Voorwaarde, Waarde, Type, Eenheid, Invoertype) %>%
+    arrange(ID) %>%
+    mutate(Waarde = ifelse(is.na(Waarde), 0,  Waarde))
 
   if (is.null(record_ids)) {
 
@@ -1272,82 +1395,53 @@ calc_growth_classes_vbi <- function(data_path, record_ids = NULL){
 
 
 ###############################################################################
-### grondvlak
+### calc basal area
 ###############################################################################
 
-calc_basal_area <- function(data_path, record_ids = NULL, per_segment = FALSE, unit = "Grondvlak_ha"){
+calc_basalarea_ha <- function(data_path, record_ids = NULL, per_segment = FALSE,
+                              data_type = "vbi"){
 
-  trees_a3a4 <- get_trees_a3a4(data_path, record_ids)
+  trees_a3a4 <- get_trees_a3a4(data_path, record_ids, data_type = data_type)
 
-  if(!per_segment){
+  plot_weights <- get_plot_weights(data_path, record_ids, data_type = data_type)
 
-      plotsize_adj <- trees_a3a4 %>%
-        group_by(plot_id, segment_id) %>%
-        summarise(AreaA4_m2_segment = unique(AreaA4_m2),
-                  AreaA3_m2_segment = unique(AreaA3_m2)) %>%
-        group_by(IDPlots) %>%
-        summarise(AreaA4_m2 = sum(AreaA4_m2_segment),
-                  AreaA3_m2 = sum(AreaA3_m2_segment))
+  trees_a3a4_weight <- trees_a3a4 %>%
+    filter(status_tree == "alive") %>%
+    left_join(plot_weights, by = c("plot_id", "segment_id", "vbi_cycle", "record_id"))
 
-      treesA3A4 <- treesA3A4 %>%
-        mutate(IDSegments = 1) %>%
-        select(-AreaA4_m2, -AreaA3_m2) %>%
-        left_join(plotSize_adj, by = "IDPlots")
-    }
+  if (per_segment) {
 
-    shoots <- getShootsVBI2(db = db, plotIDs = plotIDs)
+    basal_area_ha <- trees_a3a4_weight %>%
+      mutate(basalarea_m2_ha = ifelse(perimeter_cm < 122,
+                                      basalarea_m2 * 10000 / area_a3_m2,
+                                      basalarea_m2 * 10000 / area_a4_m2)) %>%
+      group_by(record_id, plot_id, vbi_cycle, segment_id, name_nl, name_sc) %>%
+      summarise(basalarea_m2_ha = sum(basalarea_m2_ha)) %>%
+      ungroup()
 
-    treesA3A4_Vol <-  calculateVolumeAndBasalArea(treesA3A4, shoots, dbExterneData = dbVBIExterneData)
+  } else {
 
-  # } else if(databank == "VBI2"){
-  #
-  #   treesA3A4 <- getTreesA3A4VBI2(db = db, plotIDs = plotIDs)
-  #
-  #   if(niveau == "plot"){
-  #
-  #     plotSize_adj <- treesA3A4 %>%
-  #       group_by(IDPlots, IDSegments) %>%
-  #       summarise(AreaA4_m2_segment = unique(AreaA4_m2),
-  #                 AreaA3_m2_segment = unique(AreaA3_m2)) %>%
-  #       group_by(IDPlots) %>%
-  #       summarise(AreaA4_m2 = sum(AreaA4_m2_segment),
-  #                 AreaA3_m2 = sum(AreaA3_m2_segment))
-  #
-  #     treesA3A4 <- treesA3A4 %>%
-  #       mutate(IDSegments = 1) %>%
-  #       select(-AreaA4_m2, -AreaA3_m2) %>%
-  #       left_join(plotSize_adj, by = "IDPlots")
-  #
-  #   }
-  #   shoots <- getShootsVBI2(db = db, plotIDs = plotIDs)
-  #
-  #   treesA3A4_Vol <-  calculateVolumeAndBasalArea(treesA3A4, shoots, dbExterneData = dbVBIExterneData)
-  #
-  # } else if(databank == "VBI1"){
-  #
-  #   treesA3A4 <- getTreesA3A4VBI1(db = db, plotIDs = plotIDs)
-  #   shoots <- getShootsVBI1(db = db, plotIDs = plotIDs)
-  #
-  #   treesA3A4_Vol <-  calculateVolumeAndBasalAreaVBI1(treesA3A4, shoots, dbExterneData = dbVBIExterneData)
-  #
-  # }
-  #
-  # levendHoutSoort <- treesA3A4_Vol %>%
-  #   group_by(IDPlots, IDSegments, NameSc) %>%
-  #   summarise(Volume_ha = sum(Volume_ha * (StatusTree == "levend"), na.rm = TRUE),
-  #             Grondvlak_ha = sum(BasalArea_ha  * (StatusTree == "levend"), na.rm =TRUE)) %>%
-  #   ungroup() %>%
-  #   gather(Volume_ha, Grondvlak_ha, key = Eenheid, value = Waarde) %>%
-  #   rename(Kenmerk = NameSc) %>%
-  #   mutate(TypeKenmerk = "soort_latijn",
-  #          Type = "Decimaal getal" ,
-  #          Kenmerk = as.character(Kenmerk),
-  #          ID = paste(substr(databank, 1, 3), IDPlots, ifelse(databank == "VBI2", "_2",
-  #                                                             ifelse(databank == "VBI1", "_1", "")), sep =""),
-  #          Vegetatielaag = "boomlaag") %>%
-  #   filter(Eenheid == eenheid)
+    basal_area_ha <- trees_a3a4_weight %>%
+      mutate(basalarea_m2_ha = ifelse(perimeter_cm < 122,
+                                      basalarea_m2 * 10000 / area_a3_m2_plot,
+                                      basalarea_m2 * 10000 / area_a4_m2_plot)) %>%
+      group_by(record_id, plot_id, vbi_cycle, name_nl, name_sc) %>%
+      summarise(basalarea_m2_ha = sum(basalarea_m2_ha)) %>%
+      ungroup() %>%
+      mutate(segment_id = 1)
 
-  return(levendHoutSoort)
+  }
+
+  basal_area_ha <- basal_area_ha %>%
+    rename(Kenmerk = name_sc) %>%
+    mutate(TypeKenmerk = "soort_latijn",
+           Type = "Decimaal getal",
+           ID = record_id,
+           Vegetatielaag = "boomlaag",
+           Eenheid = "Grondvlak_ha") %>%
+    select(ID, record_id, plot_id, segment_id, Vegetatielaag, Kenmerk, TypeKenmerk, Waarde = basalarea_m2_ha, Eenheid)
+
+  return(basal_area_ha)
 
 }
 
