@@ -292,7 +292,7 @@ get_stand_description <- function(data_path, record_ids = NULL, data_type = "mhq
 
   if (data_type == "mhq") {
 
-    stand_description <- read_vc(file = "stand_description", root = data_path) %>%
+    stand_description <- read_vc(file = "standdescription", root = data_path) %>%
       mutate(record_id = str_c(plot_id, "_", date_assessment))
 
   } else if (data_type == "vbi") {
@@ -360,12 +360,12 @@ get_msa <- function(data_path_extra_var, record_ids = NULL, data_type = "mhq") {
 
   if (data_type == "mhq") {
 
-    msa <- read_vc(file = "msa_mhq", root = data_path) %>%
+    msa <- read_vc(file = "msa_mhq", root = data_path_extra_var) %>%
       mutate(record_id = str_c(plot_id, "_", date_assessment))
 
   } else if (data_type == "vbi") {
 
-    msa <- read_vc(file = "msa_vbi", root = data_path) %>%
+    msa <- read_vc(file = "msa_vbi", root = data_path_extra_var) %>%
       mutate(record_id = str_c(plot_id, "_", periode))
 
   }
@@ -434,18 +434,18 @@ get_shoots <- function(data_path, record_ids = NULL) {
 ### liggend dood hout
 ###############################################################################
 
-get_lim <- function(data_path, record_ids = NULL) {
+get_logs <- function(data_path, record_ids = NULL) {
 
-  lim <- read_vc(file = "lim", root = data_path) %>%
+  logs <- read_vc(file = "logs", root = data_path) %>%
     mutate(record_id = str_c(plot_id, "_", date_assessment))
 
   if (is.null(record_ids)) {
 
-    result <- lim
+    result <- logs
 
   } else {
 
-    result <- lim %>%
+    result <- logs %>%
       filter(record_id %in% record_ids)
 
   }
@@ -708,6 +708,7 @@ get_voorwaarden_91E0_sf <- function(data_path,
 get_voorwaarden_fs <- function(data_path,
                                     data_path_extra_var,
                                     data_type = "vbi",
+                                    path_vol_parameters = NULL,
                                     data_habitat) {
 
   record_ids <- data_habitat$record_id_square
@@ -716,7 +717,7 @@ get_voorwaarden_fs <- function(data_path,
                                     Habitatgroep = "Bossen en struwelen") %>%
     distinct(Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
 
-  vw_dead_wood <- calc_dead_wood(data_path, data_type = data_type, record_ids) %>%
+  vw_dead_wood <- calc_dead_wood(data_path, data_type = data_type, path_vol_parameters, record_ids) %>%
     filter(variable %in% c("prop_dead_wood", "n_big_dead_ha")) %>%
     mutate(Voorwaarde = ifelse(variable == "prop_dead_wood", "aandeel dood hout",
                                ifelse(variable == "n_big_dead_ha", "aantal exemplaren dik dood hout per ha", NA)),
@@ -724,6 +725,7 @@ get_voorwaarden_fs <- function(data_path,
 
   stand_age <- get_stand_description(data_path, data_type = data_type, record_ids) %>%
     filter(variable == "stand_age") %>%
+    filter(segment_id == 1) %>%
     select(record_id, stand_age = category)
 
   bosconstantie <- get_bosconstantie(data_path_extra_var, data_type = data_type, record_ids) %>%
@@ -1401,13 +1403,27 @@ calc_growth_classes_vbi <- function(data_path, record_ids = NULL){
 calc_basalarea_ha <- function(data_path, record_ids = NULL, per_segment = FALSE,
                               data_type = "vbi"){
 
-  trees_a3a4 <- get_trees_a3a4(data_path, record_ids, data_type = data_type)
+  trees_a3a4 <- get_trees_a3a4(data_path, record_ids, data_type = data_type) %>%
+    mutate(segment_id = ifelse(is.na(segment_id), 1, segment_id))
 
-  plot_weights <- get_plot_weights(data_path, record_ids, data_type = data_type)
+  plot_weights <- get_plot_weights(data_path, record_ids, data_type = data_type) %>%
+    select(record_id, plot_id, segment_id, area_a3_m2, area_a4_m2, area_a3_m2_plot, area_a4_m2_plot)
+
+  if (data_type == "mhq") {
+
+    shoots <- get_shoots(data_path, record_ids) %>%
+      select(record_id, tree_id, shoot_id, dbh_mm_shoot = dbh_mm)
+
+    trees_a3a4 <- trees_a3a4 %>%
+      left_join(shoots, by = c("record_id", "tree_id")) %>%
+      mutate(dbh_mm = ifelse(!is.na(dbh_mm_shoot), dbh_mm_shoot, dbh_mm),
+            basalarea_m2 = pi * (dbh_mm / 2 / 1000) ^ 2)
+
+  }
 
   trees_a3a4_weight <- trees_a3a4 %>%
-    filter(status_tree == "alive") %>%
-    left_join(plot_weights, by = c("plot_id", "segment_id", "vbi_cycle", "record_id"))
+    filter(status_tree %in% c("alive", "levend")) %>%
+    left_join(plot_weights, by = c("plot_id", "segment_id", "record_id"))
 
   if (per_segment) {
 
@@ -1415,7 +1431,7 @@ calc_basalarea_ha <- function(data_path, record_ids = NULL, per_segment = FALSE,
       mutate(basalarea_m2_ha = ifelse(perimeter_cm < 122,
                                       basalarea_m2 * 10000 / area_a3_m2,
                                       basalarea_m2 * 10000 / area_a4_m2)) %>%
-      group_by(record_id, plot_id, vbi_cycle, segment_id, name_nl, name_sc) %>%
+      group_by(record_id, plot_id,  segment_id, name_nl, name_sc) %>%
       summarise(basalarea_m2_ha = sum(basalarea_m2_ha)) %>%
       ungroup()
 
@@ -1425,7 +1441,7 @@ calc_basalarea_ha <- function(data_path, record_ids = NULL, per_segment = FALSE,
       mutate(basalarea_m2_ha = ifelse(perimeter_cm < 122,
                                       basalarea_m2 * 10000 / area_a3_m2_plot,
                                       basalarea_m2 * 10000 / area_a4_m2_plot)) %>%
-      group_by(record_id, plot_id, vbi_cycle, name_nl, name_sc) %>%
+      group_by(record_id, plot_id, name_nl, name_sc) %>%
       summarise(basalarea_m2_ha = sum(basalarea_m2_ha)) %>%
       ungroup() %>%
       mutate(segment_id = 1)
@@ -1439,7 +1455,7 @@ calc_basalarea_ha <- function(data_path, record_ids = NULL, per_segment = FALSE,
            ID = record_id,
            Vegetatielaag = "boomlaag",
            Eenheid = "Grondvlak_ha") %>%
-    select(ID, record_id, plot_id, segment_id, Vegetatielaag, Kenmerk, TypeKenmerk, Waarde = basalarea_m2_ha, Eenheid)
+    select(ID, record_id, plot_id, segment_id, Vegetatielaag, Kenmerk, TypeKenmerk, Waarde = basalarea_m2_ha, Type, Eenheid)
 
   return(basal_area_ha)
 
@@ -1450,20 +1466,102 @@ calc_basalarea_ha <- function(data_path, record_ids = NULL, per_segment = FALSE,
 ###############################################################################
 
 calc_dead_wood <- function(data_path,
+                           path_vol_parameters = path_vbi,
                                record_ids = NULL,
                                data_type = "mhq") {
 
   trees_a3a4 <- get_trees_a3a4(data_path, record_ids, data_type)
-
   plot_weights <- get_plot_weights(data_path, record_ids, data_type)
 
+  if (data_type == "mhq") {
+
+  shoots <- get_shoots(data_path, record_ids)
+  logs <- get_logs(data_path, record_ids)
+
+  trees_individual_a3a4_height <- trees_a3a4 %>%
+    filter(!is.na(height_m)) %>%
+    filter(coppice_individual == "Individuele boom") %>%
+    calc_volume_tree(n_input = 2, path_vol_parameters = path_vol_parameters)
+
+  trees_individual_a3a4_noheight <- trees_a3a4 %>%
+    filter(is.na(height_m)) %>%
+    filter(coppice_individual == "Individuele boom") %>%
+    calc_volume_tree(n_input = 1, path_vol_parameters = path_vol_parameters)
+
+  shoots_a3a4_height <- trees_a3a4 %>%
+    filter(coppice_individual == "Hakhoutstoof") %>%
+    select(-dbh_mm, -perimeter_cm) %>%
+    filter(!is.na(height_m)) %>%
+    left_join(shoots, by = c("plot_id", "tree_id", "record_id", "date_assessment", "mon_cycle")) %>%
+    calc_volume_tree(n_input = 2, path_vol_parameters = path_vol_parameters)
+
+  shoots_a3a4_noheight <- trees_a3a4 %>%
+    filter(coppice_individual == "Hakhoutstoof") %>%
+    select(-dbh_mm, -perimeter_cm) %>%
+    filter(is.na(height_m)) %>%
+    left_join(shoots, by = c("plot_id", "tree_id", "record_id", "date_assessment", "mon_cycle")) %>%
+    calc_volume_tree(n_input = 1, path_vol_parameters = path_vol_parameters)
+
+  plot_weights <- plot_weights %>%
+    distinct(plot_id, date_assessment, area_a4_m2_plot, area_a3_m2_plot)
+
+  trees_all <- trees_individual_a3a4_height %>%
+    bind_rows(trees_individual_a3a4_noheight) %>%
+    bind_rows(shoots_a3a4_height) %>%
+    bind_rows(shoots_a3a4_noheight) %>%
+    mutate(volume_m3 = ifelse(status_tree == "Niet intacte boom", height_m * pi * (dbh_mm / 1000) ^ 2, volume_m3)) %>%
+    left_join(plot_weights, by = c("plot_id",  "date_assessment"), relationship = "many-to-many") %>%
+    mutate(volume_m3_ha = ifelse(perimeter_cm < 122, 10000 * volume_m3 / area_a3_m2_plot, 10000 * volume_m3 / area_a4_m2_plot))
+
+  vol_standing_tot <- trees_all %>%
+    group_by(record_id, plot_id, date_assessment, status_tree) %>%
+    summarise(vol_tot_m3_ha = sum(volume_m3_ha, na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(status_tree = ifelse(status_tree == "levend", "alive_vol",
+                           ifelse(status_tree == "dood", "snags_vol", NA)))
+
+  li = 45
+  vol_logs <- logs %>%
+    mutate(volume_m3_ha = pi ^ 2 / 8 / li * (diameter_cm ^ 2) / cos(angle_degrees * pi/180)) %>%
+    group_by(record_id, plot_id, date_assessment) %>%
+    summarise(vol_tot_m3_ha = sum(volume_m3_ha, na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(status_tree = "logs_vol")
+
+  proportion_dead_wood <- vol_standing_tot %>%
+    bind_rows(vol_logs) %>%
+    pivot_wider(names_from = status_tree, values_from = vol_tot_m3_ha) %>%
+    mutate(snags_vol = ifelse(is.na(snags_vol), 0, snags_vol),
+           logs_vol = ifelse(is.na(logs_vol), 0, logs_vol)) %>%
+    mutate(prop_dead_wood = round(ifelse((snags_vol + logs_vol + alive_vol) == 0, NA,
+                                    (snags_vol + logs_vol) / (snags_vol + logs_vol + alive_vol) * 100), 2),
+             prop_dead_wood_standing = round(ifelse((snags_vol + alive_vol) == 0, NA,
+                                              (snags_vol) / (snags_vol + alive_vol) * 100), 2)) %>%
+      select(record_id, prop_dead_wood, prop_dead_wood_standing) %>%
+      pivot_longer(cols = c("prop_dead_wood", "prop_dead_wood_standing"), names_to = "variable",
+                   values_to = "value")
+
+  big_dead_wood <- trees_a3a4 %>%
+    left_join(plot_weights, by = c("plot_id", "date_assessment")) %>%
+    group_by(record_id, area_a4_m2_plot) %>%
+    summarise(n_big_dead = sum((dbh_mm > 400) * (status_tree == "dood"), na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(value = n_big_dead * 10000 / area_a4_m2_plot,
+           variable = "n_big_dead_ha") %>%
+    select(record_id, variable, value)
+
+  dead_wood_var <- proportion_dead_wood %>%
+    bind_rows(big_dead_wood) %>%
+    arrange(record_id)
+
+  }
   if (data_type == "vbi") {
 
     proportion_dead_wood <- get_analysis_var_vbi(data_path, record_ids) %>%
       filter(variable %in% c("logs_vol", "snags_vol",
                              "alive_vol")) %>%
-      left_join(select(plot_weights, plot_id, segment_id, vbi_cycle, segment_weight), by = c("plot_id", "segment_id", "vbi_cycle")) %>%
-      group_by(record_id, plot_id, vbi_cycle, variable) %>%
+      left_join(select(plot_weights, record_id, segment_weight), by = c("record_id"), relationship = "many-to-many") %>%
+      group_by(record_id, variable) %>%
       summarise(value_plot = sum(value * segment_weight)) %>%
       ungroup() %>%
       pivot_wider(names_from = "variable", values_from = "value_plot") %>%
@@ -1471,31 +1569,72 @@ calc_dead_wood <- function(data_path,
                                     (snags_vol + logs_vol) / (snags_vol + logs_vol + alive_vol) * 100),
              prop_dead_wood_standing = ifelse((snags_vol + alive_vol) == 0, NA,
                                               (snags_vol) / (snags_vol + alive_vol) * 100)) %>%
-      select(record_id, plot_id, vbi_cycle, prop_dead_wood, prop_dead_wood_standing) %>%
+      select(record_id,  prop_dead_wood, prop_dead_wood_standing) %>%
       pivot_longer(cols = c("prop_dead_wood", "prop_dead_wood_standing"), names_to = "variable",
                    values_to = "value")
 
+    plot_weights <- plot_weights %>%
+      distinct(record_id,  area_a3_m2_plot, area_a4_m2_plot)
+
+    big_dead_wood <- trees_a3a4 %>%
+      left_join(plot_weights, by = c("record_id")) %>%
+      group_by(record_id, area_a4_m2_plot) %>%
+      summarise(n_big_dead = sum((dbh_mm > 400) * (status_tree == "dead"), na.rm = TRUE)) %>%
+      ungroup() %>%
+      mutate(value = n_big_dead * 10000 / area_a4_m2_plot,
+             variable = "n_big_dead_ha") %>%
+      select(record_id, variable, value)
+
+    dead_wood_var <- proportion_dead_wood %>%
+      bind_rows(big_dead_wood) %>%
+      arrange(record_id)
+
   }
-
-  plot_weights <- plot_weights %>%
-    distinct(record_id, plot_id, vbi_cycle, area_a3_m2_plot, area_a4_m2_plot)
-
-  big_dead_wood <- trees_a3a4 %>%
-    left_join(plot_weights, by = c("record_id", "plot_id", "vbi_cycle")) %>%
-    group_by(record_id, plot_id, vbi_cycle, area_a4_m2_plot) %>%
-    summarise(n_big_dead = sum((dbh_mm > 400) * (status_tree == "dead"), na.rm = TRUE)) %>%
-    ungroup() %>%
-    mutate(value = n_big_dead * 10000 / area_a4_m2_plot,
-           variable = "n_big_dead_ha") %>%
-    select(record_id, plot_id, vbi_cycle, variable, value)
-
-  dead_wood_var <- proportion_dead_wood %>%
-    bind_rows(big_dead_wood) %>%
-    arrange(plot_id, vbi_cycle)
 
 return(dead_wood_var)
 
 }
+
+###############################################################################
+### volume trees
+###############################################################################
+
+calc_volume_tree <- function(trees, n_input, path_vol_parameters) {
+
+    vol_parameters_1input <- read_vc(root = path_vol_parameters, file = "vol_parameters_1input")
+
+    vol_parameters_2input <- read_vc(root = path_vol_parameters, file = "vol_parameters_2input")
+
+  trees <- trees %>%
+    left_join(select(vol_parameters, -name_nl), by = "tree_species_id") %>% #code soortnaam identiek voor verschillende periodes, maar soortnaam kan verschillen
+    mutate(diameter_cm = dbh_mm / 10)
+
+  ### 2 ingangen
+  if (n_input == 2) {
+
+    trees_vol <- trees %>%
+      mutate(volume_m3 = ifelse(formule_type == 1,
+                             yes = a + b * perimeter_cm + c * (perimeter_cm^2) + d * (perimeter_cm^3) + e*height_m + f * height_m * perimeter_cm + g * height_m * (perimeter_cm^2),
+                             no =  1/1000 *
+                               #spil
+                               (exp(1.10597 * log(height_m) + 1.78865 * log(diameter_cm) - 3.07192) -
+                                  #Verlies
+                                  exp(-4.608923 * log(diameter_cm) + 3.005989 * log(height_m) - 1.3209 * log(height_m) * log(height_m) + 1.605266 * log(diameter_cm) * log(height_m) + 5.410272)))) %>%
+      select(-a, -b, -c, -d, -e, -f, -g, -formule_type, -tarief) %>%
+      mutate(volume_m3 = pmax(0,volume_m3))
+
+  } else if (n_input == 1){
+
+    trees_vol <- trees %>%
+      mutate(volume_m3 = a + b * perimeter_cm + c * (perimeter_cm^2) + d *(perimeter_cm^3)) %>%
+      select(-a, -b, -c, -d,  -tarief) %>%
+      mutate(volume_m3 = pmax(0,volume_m3))
+
+  }
+
+  return(trees_vol)
+}
+
 
 ################################################################################
 ### write lsvi results

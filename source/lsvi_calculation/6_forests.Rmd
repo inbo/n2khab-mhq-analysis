@@ -1,4 +1,4 @@
-# Heath habitat types
+# Forest habitat types
 
 ```{r}
 
@@ -49,6 +49,15 @@ data_voorwaarden_vbi <- get_voorwaarden_fs(data_path = path_vbi,
                                           data_type = "vbi",
                                           data_habitat = data_habitat_vbi)
 
+data_voorwaarden_mhq <- get_voorwaarden_fs(data_path = path_mhq_anb,
+                                          data_path_extra_var = path_extra_var,
+                                          data_type = "mhq",
+                                          data_habitat = data_habitat_mhq_fs,
+                                          path_vol_parameters = path_vbi)
+
+data_voorwaarden_fs <- data_voorwaarden_vbi %>%
+  bind_rows(data_voorwaarden_mhq)
+
 data_soorten_kenm_mhq <- get_soorten_kenmerken_fs(data_path = path_mhq_anb,
                          record_ids =  data_habitat_mhq_fs$record_id_square)
 
@@ -65,13 +74,31 @@ data_habitat_vbi_91E0_vc <- data_habitat_vbi %>%
 data_habitat_vbi_other <- data_habitat_vbi %>%
   filter(type_observed != "91E0_vc")
 
+data_habitat_mhq_91E0_vc <- data_habitat_mhq_fs %>%
+  filter(type_observed == "91E0_vc")
+
+data_habitat_mhq_other <- data_habitat_mhq_fs %>%
+  filter(type_observed != "91E0_vc")
+
 data_basalarea_vbi_other <- calc_basalarea_ha(data_path = path_vbi,
                                                record_ids = data_habitat_vbi_other$record_id_square,
-                                               per_segment = TRUE)
+                                               per_segment = TRUE,
+                                              data_type = "vbi")
 
 data_basalarea_vbi_91E0_vc <- calc_basalarea_ha(data_path = path_vbi,
                                                record_ids = data_habitat_vbi_91E0_vc$record_id_square,
-                                               per_segment = FALSE)
+                                               per_segment = FALSE,
+                                               data_type = "vbi")
+
+data_basalarea_mhq_other <- calc_basalarea_ha(data_path = path_mhq_anb,
+                                               record_ids = data_habitat_mhq_other$record_id_square,
+                                               per_segment = TRUE,
+                                              data_type = "mhq")
+
+data_basalarea_mhq_91E0_vc <- calc_basalarea_ha(data_path = path_mhq_anb,
+                                               record_ids = data_habitat_mhq_91E0_vc$record_id_square,
+                                               per_segment = FALSE,
+                                               data_type = "mhq")
   
 cover_without_populus <- data_soorten_kenm_fs %>%
   filter(!is.na(Vegetatielaag) & Vegetatielaag %in% c("boomlaag", "struiklaag")) %>%
@@ -85,6 +112,7 @@ cover_without_populus <- data_soorten_kenm_fs %>%
 
 data_basalarea_fs <- data_basalarea_vbi_other %>%
   bind_rows(data_basalarea_vbi_91E0_vc) %>%
+  bind_rows(data_basalarea_mhq_other, data_basalarea_mhq_91E0_vc) %>%
   filter(segment_id == 1) %>%
   left_join(cover_without_populus, by = "ID") %>%
   left_join(select(data_habitat_fs, ID, type_observed), by = "ID") %>%
@@ -100,81 +128,84 @@ data_basalarea_fs <- data_basalarea_vbi_other %>%
     remove_populus = (substr(Kenmerk, 1, 7) == "Populus") &
            (substr(type_observed, 1, 4) == "91E0") &
            ((!is.na(cover_treelayer_nopop)) & (cover_treelayer_nopop >= 70)))
+
+data_basalarea_fs <- data_basalarea_fs %>%
+  filter(!remove_populus) %>%
+  select(-popolus_present, -remove_populus, -cover_treelayer_nopop, -plot_id, -segment_id, -type_observed)
+
+data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
+  bind_rows(data_basalarea_fs) %>%
+  mutate(Kenmerk = ifelse(Kenmerk == "Loofhout", "Quercus", Kenmerk),
+         Kenmerk = ifelse(Kenmerk == "Naaldhout", "Pinus", Kenmerk),
+         Kenmerk = ifelse(Kenmerk == "F. excelsior/A. pseudoplatanus", "Fraxinus excelsior", Kenmerk),
+         Kenmerk = ifelse(Kenmerk == "Picaea abies", "Picea abies", Kenmerk), #foute spelling
+         Kenmerk = ifelse(Kenmerk == "Platanus hispanica L.", "Platanus", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk == "Alnus x pubescens Tausch", "Alnus glutinosa x incana", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk == "Salix x reichardtii A. Kerner", "Salix", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk == "Taraxacum Wiggers sectie Subvulgaria Christians.", "Taraxacum Wiggers", Kenmerk),
+         Kenmerk = ifelse(Kenmerk == "Populus x canadensis Moench", "Populus", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk == "Rumex x pratensis Mert. et Koch", "Rumex", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk == "Platanus x hispanica Mill. ex Münchh.", "Platanus", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk == "Tilia x europaea L.", "Tilia", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk %in% c("Cedrus atlantica (Endl.) Carr.", "Cedrus libani A. Rich.", "Sequoiadendron giganteum", "Sequoia", "Cupressus"), "Picea", Kenmerk)) %>% #exoten die niet herkend worden 
+  arrange(ID)
 ```
 
 ## Berekening voorwaarden
 
 ### Rechtstreeks invoer in rekenmodule
 
-Volgende voorwaarden worden rechtstreeks ingeschat in de cirkelplot:
+Voor de volgende voorwaarden worden de waarden rechtstreeks ingevoerd in de LSVI-rekenmodule:
 
-+ bedekking verbossing
-+ bedekking dwergstruiken
-+ bedekking vergrassing
-+ bedekking verruiging
-+ bedekking invasieve exoten (Grijs kronkelsteeltje)
-+ bedekking naakte bodem
+* aandeel dood hout,
+* hoeveelheid dik dood hout,
+* bosconstantie,
+* minimum structuurareaal (MSA).
 
-De voorwaarde 'aantal ouderdomsstadia' en 'climax- of degeneratiestadium aanwezig' (2310 en 4030) leiden we af uit de bedekking in de cirkelplot van volgende stadia: 
+\needspace{60mm}
+De *bosconstantie* wordt afgeleid uit de bosleeftijdskaart en de bestandsleeftijd opgemeten op het terrein:
 
-+ pioniersstadium 
-+ ontwikkelingsstadium 
-+ climaxstadium
-+ degeneratiestadium
+* bosconstantie >= 100 jaar als het meetpunt tot de klasse 'voor 1775' of 'tussen 1775 en 1850' behoort OF als de bestandsleeftijd > 100 jaar;
+* bosconstantie >= 75 jaar als het meetpunt tot de klasse 'tussen 1850 en +-1930' behoort OF als de bestandsleeftijd > 80 jaar;
+* bosconstantie >= 30 jaar als het meetpunt tot de klasse 'na +-1930' behoort  EN als de  bestandsleeftijd > 40 jaar heeft;
+* bosconstantie < 30 jaar in alle andere gevallen.
 
-De bedekking van 'open vegetaties' (2310) en 'open vegetaties en kaal zand' (2330_bu) leiden we af uit de bedekking in de cirkelplot van de verschillende pioniersstadia:
+*Aandeel dood hout* en *hoeveelheid dik dood hout* worden berekend op basis van de dendrometrische gegevens. Beide variabelen worden steeds voor de volledige plot berekend, ook al bestaat het meetpunt slechts gedeeltelijk uit doelhabitat. Voor de schatting van de toestand op basis van de tweede Bosinventarisatie en het Meetnet Habitatkwaliteit, gebruiken we gegevens van liggend en staand dood hout om beide voorwaarden te berekenen. In de eerste Bosinventarisatie werd echter enkel staand dood hout opgemeten. Voor de schatting van veranderingen tussen beide inventarisaties gebruiken we dus enkel gegevens van staand dood hout, zodat de resultaten voor beide periodes vergelijkbaar zijn. We gebruiken dan ook een aangepaste referentiewaarde voor de indicator 'aandeel dood hout', meer bepaald 2 m²/ha i.p.v. 4 m²/ha. 
 
-+ buntgras
-+ korstmossen
-+ mossen
-+ open bodem
+Het is niet aangewezen om de indicator ‘hoeveelheid dik dood hout’ te beoordelen op meetpuntniveau. Dik dood hout is immers dermate zeldzaam, dat dit op niveau van een boscomplex zou moeten beoordeeld worden. Daarom rekenen we de beoordeling van deze indicator niet mee bij het bepalen van de status van de habitatvlek. Wel schatten we het gemiddeld aantal exemplaren dik dood hout per hectare voor geheel Vlaanderen. Door dit voor beide periodes van de Bosinventarisatie te doen, geeft dit een idee hoe de indicator evolueert in de tijd.  
 
-'Open vegetaties' is de som van de bedekking van buntgras, korstmossen en mossen.
-'Open vegetaties en kaalzand' is de som van 'open vegetaties' en open bodem.
-<
 ### Voorwaarden berekend door rekenmodule
 
-```{r}
-voorwaarden_module <- overzicht_lsvi %>%
-  anti_join(data_voorwaarden_fs, by = "Voorwaarde")
-```
+De overige voorwaarden van de boshabitats worden via de LSVI-rekenmodule berekend op basis van de volgende gegevens:
 
-Volgende voorwaarden worden door de rekenmodule berekend
+* de bedekking van de soorten in de vegetatieplot,
+* de bedekking van de vegetatielagen in de vegetatieplot,
+* de aanwezige groeiklassen,
+* het grondvlak per boomsoort.
 
-```{r}
-voorwaarden_module %>%
-  select(Habitatsubtype, Indicator, Voorwaarde) %>%
-  datatable(rownames = FALSE,
-            filter = "top")
-```
+De aanwezige groeiklassen worden afgeleid uit de vegetatiegegevens (groeiklasse 2) en de dendrometrische gegevens (groeiklassen 3 tot 7).  Groeiklasse 1 (= open ruimte in bos) kan niet afgeleid worden uit de meetgegevens en ontbreekt dus steeds. Wanneer een meetpunt slechts gedeeltelijk uit doelhabitat bestaat, tellen we toch alle aanwezige groeiklasse binnen het volledige meetpunt mee. Een dikke boom uit groeiklasse 7 die niet in het doelhabitat ligt maar wel binnen het meetpunt valt (de cirkelplot met straal van 18 meter) zal dus toch meegerekend worden.
 
-Te corrigeren in LSVI-databank: 
+Het grondvlak per boomsoort leiden we af uit de dendrometrische gegevens. Als een meetpunt slechts gedeeltelijk uit doelhabitat bestaat, zullen we hier enkel de bomen meerekenen die gelegen zijn binnen het deel van de plot met doelhabitat. Op basis deze gegevens wordt immers de voorwaarde 'grondvlakaandeel van de sleutelsoorten in de boomlaag' bepaald. Een uitzondering hierop is habitatsubtype 91E0_vc, dat vaak slechts over een kleine oppervlakte voorkomt en waarvoor ook de bomen in de omliggende habitatvlekken (maar binnen het meetpunt) meegenomen worden voor het bepalen van het aandeel sleutelsoorten. Ten slotte rekenen we, zoals aangegeven in @TJollyn2009 en @Oosterlynck2018, bij habitattype 91E0 het grondvlak van populieren niet mee als de bedekking van de boomlaag zonder populier groter is dan 70 %. De bedekking van de boomlaag zonder populier leiden we af uit de vegetatieopname.
 
-+ bij 2310 is de naam van de voorwaarde 'open vegetaties' ipv 'open vegetaties en kaal zand' en ontbreekt open zand bij studiewaarden
-
-+ 'aandeel meerjarigen' (2330_dw) wordt berkend door de som te nemen van de bedekking van alle soorten, exclusief de lijst éénjarigen, maar inclusief mossen.
+De voorwaarde 'schaalgrootte ingrepen (ha)', die onderdeel uitmaakt van de indicator 'horizontale structuur - natuurlijke mozaiekstructuur', kan niet worden afgeleid uit de beschikbare gegevens en en wordt daarom niet meegerekend bij de evaluatie van de LSVI.
 
 ## Volledigheid van de invoergegevens
 
 ### Specifiactie habitatsubtype
 
-+ 2330: we berekenen lsvi voor de subtypen 2330_bu en 2330_dw
++ Indien habitatsubtype van 9130 niet gespecifieerd is veronderstellen we 9130_end
++ Indien habitatsubtype van 91E0 niet gespecifieerd is veronderstellen we 91E0_va
 
 ```{r}
 
-subtypes_2330 <- types %>%
-  filter(main_type == "2330") %>%
+subtypes_fs <- types %>%
+  filter(typeclass == "FS") %>%
   filter(typelevel == "subtype") %>%
   select(type_observed = main_type, Habitattype = type) 
 
-data_habitat_2330 <- data_habitat_fs %>%
-  filter(type_observed == "2330") %>%
-  select(-Habitattype) %>%
-  left_join(subtypes_2330, by = "type_observed")
-
 data_habitat_fs <- data_habitat_fs %>%
-  anti_join(data_habitat_2330, by = "ID") %>%
-  bind_rows(data_habitat_2330)
+  mutate(Habitattype = ifelse(Habitattype == "9130", "9130_end",
+                              ifelse(Habitattype == "91E0", "91E0_va", Habitattype)))
 ```
 
 ### Voorwaarden
