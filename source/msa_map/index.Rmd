@@ -1,0 +1,48 @@
+---
+title: "Berekening van het minimum structuurareaal (MSA) van de Natura 2000 boshabitattypen"
+author: 
+  -
+    name: "Toon Westra, Jeroen Vanden Borre"
+    email: "Toon.Westra@inbo.be"
+  -
+link-citations: TRUE
+site: bookdown::bookdown_site
+output:
+  bookdown::html_document2:
+    code_folding: hide
+    keep_md: TRUE
+    toc: TRUE
+    toc_depth: 2
+    toc_float:
+      collapsed: FALSE
+      smooth_scroll: FALSE
+    number_sections: TRUE
+    split_by: "chapter+number"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE)
+
+library(tidyverse)
+library(n2khab)
+library(n2khabmon)
+library(sf)
+library(leaflet)
+library(DT)
+library(units)
+library(openssl)
+
+options(dplyr.summarise.inform = FALSE)
+
+# ISO8601 timestamp to set as fixed value in the GeoPackage 
+# (to be UPDATED to the actual creation date; at least update for each version):
+Sys.setenv(OGR_CURRENT_DATE = "2024-10-21T00:00:00.000Z")
+# This is used to keep results reproducible, as the timestamp is otherwise
+# updated each time.
+# Above environment variable OGR_CURRENT_DATE is used by the GDAL driver.
+# The time precision (milliseconds) & timezone (UTC, denoted by 'Z') is
+# needed to meet Requirement 15 of the GeoPackage standard (version 1.2.1 & 1.3).
+```
+

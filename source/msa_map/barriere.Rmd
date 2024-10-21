@@ -1,0 +1,79 @@
+# Fragmenterende infrastructuur
+
+Bij de berekening van de MSA houden we rekening met fragmenterende infrastructuur:
+
++ spoorlijnen
++ tweevakswegen
++ kanalen en breede rivieren
+
+## Data en werkwijze
+
+We maken gebruik van volgende lagen uit het [GRB](https://www.vlaanderen.be/datavindplaats/catalogus/grbgis#downloadservices) om de barrière objecten te selecteren:
+
++ 'Wegsegment'
+  + We selecteren 'autosnelweg' en 'weg met gescheiden rijbanen die geen autosnelweg is' op basis van kolom 'LBLMORF'
+  + We voegen een buffer van 3 meter toe
++ 'Sbn' (spoorwegen)
+  + We selecteren 'trein' op basis van kolom 'FUNCTIE'
++ 'Wlas' (waterlopen)
+  + We selecteren 'Bevaarbaar' op basis van kolom 'LBLCATC'
+  + We voegen een buffer van 10 meter toe
+  
+We gebruiken versie '20241015'.
+We bewaren deze versie in [deze google drive folder](https://drive.google.com/drive/folders/17g0WHzA8Ht5psI7qzX2peoULG1rUQUfH).
+
+
+## Resultaat
+
+We voegen alle barrière objecten samen in één laag en schrijven die weg naar 'barriere.gpkg'.
+
+```{r}
+
+path_barriere <- "../../data/barriere"
+
+if (!file.exists(file.path(path_barriere, "barriere.gpkg"))) {
+  
+  grb_wegsegment <- st_read(dsn = path_barriere, layer = "wegsegment")
+
+road <- grb_wegsegment %>%
+  filter(MORF %in% c(101, 102)) %>%
+  st_buffer(dist = 3) %>%
+  select(category = LBLMORF)
+
+rm(grb_wegsegment)
+
+grb_sbn <- st_read(dsn = path_barriere, layer = "sbn")
+
+railroad <- grb_sbn %>%
+  filter(FUNCTIE == 1) %>%
+  mutate(category = "spoorweg trein") %>%
+  select(category)
+
+rm(grb_sbn)
+
+grb_wlas <- st_read(dsn = path_barriere, layer = "wlas")
+
+waterway <- grb_wlas %>%
+  filter(CATC == 0) %>%
+  st_buffer(dist = 10) %>%
+  mutate(category = "bevaarbare waterloop") %>%
+  select(category)
+
+rm(grb_wlas)
+
+barriere <- road  %>%
+  bind_rows(railroad) %>%
+  bind_rows(waterway) %>%
+  mutate(barriere = TRUE) %>%
+  st_transform(crs = 31370)
+
+barriere %>%
+  st_write(dsn = file.path(path_barriere, "barriere.gpkg"), delete_layer = TRUE)
+  
+} else {
+  
+  barriere <- st_read(file.path(path_barriere, "barriere.gpkg"))
+}
+
+```
+
