@@ -1,0 +1,481 @@
+# MHQ Forest habitat types
+
+```{r}
+
+# data 91E0_sf nog toevoegen
+
+lsvi_detail <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/forests/result"),
+                             file = "lsvi_detail_fs")
+
+lsvi_globaal  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/forests/result"),
+                             file = "lsvi_globaal_fs")
+
+lsvi_indicator  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/forests/result"),
+                             file = "lsvi_indicator_fs")
+
+data_habitat  <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/forests/input"),
+                             file = "data_habitat_fs")
+
+data_habitat_mhq <- data_habitat %>%
+  filter(survey == "anb") %>%
+  select(id = ID, type_analysis = Habitattype, date, record_id = record_id_square)
+
+data_habitata_vbi <- data_habitat %>%
+  filter(survey == "vbi") %>%
+  select(id = ID, type_analysis = Habitattype, phab, date, record_id = record_id_square, vbi_cycle)
+
+```
+
+
+```{r}
+types_cat <- read_types() %>%
+  filter(typeclass %in% c("ID", "HS"))
+
+mhq_measurements_cat <- mhq_measurements %>%
+  semi_join(types_cat, by = "type") %>%
+  mutate(record_id = str_c(db_ref, "_", measurement_date)) %>%
+  left_join(data_habitat_mhq, by = c("record_id")) 
+
+check_missing_lsvi <- mhq_measurements_cat %>%
+  filter(is.na(id)) # sf not in fieldmap db
+
+add_point_code <- mhq_refpoints %>%
+  select(point_code) %>%
+  mutate(user_reference = str_sub(point_code, end = -3))
+
+check_missing_mhq_admin <- data_habitat_mhq %>%
+  anti_join(mhq_measurements_cat, by = c("record_id")) %>%
+  mutate(type = type_analysis)
+
+```
+
+```{r}
+
+mhq_su <- mhq_measurements_cat %>%
+  filter(!is.na(id)) %>%
+  #bind_rows(check_missing_mhq_admin) %>%
+  filter(type == type_analysis | type == "2190_overig") %>%
+  mutate(main_type = str_sub(type, 1, 4)) %>%
+  left_join(strata, by = "point_code") %>%
+  group_by(point_code, type) %>%
+  mutate(paired = n_distinct(date) > 1) %>%
+  ungroup()
+
+mhq_weights <- mhq_su %>%
+  group_by(main_type, type, in_sac) %>%
+  summarise(n_pq = n_distinct(point_code),
+         n_measurements = n(),
+         n_paired = sum(paired) / 2) %>%
+  ungroup()  %>%
+  left_join(type_area, by = c("type", "in_sac")) %>%
+  mutate(weight = area_ha / n_pq,
+         weight_paired = ifelse(n_paired > 0, area_ha/n_paired, 0)) %>%
+  group_by(main_type) %>%
+  mutate(weight_rel = weight / sum(weight),
+         weight_paired_sum = sum(weight_paired)) %>%
+  ungroup() %>%
+  mutate(weight_paired_rel = ifelse(weight_paired_sum > 0, weight_paired/weight_paired_sum, 0)) %>%
+  select(-weight_paired_sum)
+ 
+```
+
+## Gewichten toestand habitatkwaliteit
+
+```{r}
+mhq_weights  %>%
+  arrange(main_type) %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+
+```{r}
+mhq_su_recent <- mhq_su %>%
+  group_by(point_code) %>%
+  filter(date == max(date)) %>%
+  ungroup() %>%
+  left_join(mhq_weights, by = c("main_type", "type", "in_sac"))
+
+check <- mhq_su_recent %>%
+  group_by(id) %>%
+  filter(n() > 1)
+
+mhq_su_remeasured <- mhq_su %>%
+  filter(paired) %>%
+  group_by(point_code, main_type) %>%
+  mutate(periode = ifelse(date == min(date), "c_1",
+                          ifelse(date == max(date), "c_2", "extra"))) %>%
+  ungroup() %>%
+  left_join(mhq_weights, by = c("main_type", "type", "in_sac"))
+
+```
+
+
+## Status per plot
+
+```{r}
+
+lsvi_status_cat <- lsvi_globaal %>%
+  inner_join(select(mhq_su, id, type_analysis, type, main_type, in_sac), by = c("id", "type_analysis")) %>%
+  rename(status_habitatvlek = status)
+
+lsvi_indicator_cat <- lsvi_indicator %>%
+  inner_join(select(mhq_su, id, type_analysis, type, main_type, in_sac), by = c("id", "type_analysis"))
+```
+
+
+## Status Vlaanderen
+
+```{r}
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/forests/result")
+```
+
+
+### Meest recente toestand habitatkwaliteit per meetpunt
+
+```{r}
+lsvi_status_cat_recent <- lsvi_status_cat %>%
+  inner_join(select(mhq_su_recent, id, weight_rel, date), by = "id") %>%
+  mutate(Versie = "Versie 3",
+         SBZH = ifelse(in_sac, "Binnen", "Buiten"),
+         Habitattype = main_type,
+         Habitatsubtype = type,
+         WeightComb = weight_rel,
+         StratumWeight = weight_rel,
+         PlotWeight = 1,
+         Status_habitatvlek = ifelse(status_habitatvlek, 1, 0)
+         ) 
+
+periode_min <- min(lsvi_status_cat_recent$date)
+periode_max <- max(lsvi_status_cat_recent$date)
+
+status_flanders_cat <- habitatandeelGunstig(lsvi_status_cat_recent)
+
+status_flanders_cat_tidy <- status_flanders_cat %>%
+  mutate(schaal = "Vlaanderen",
+         type_resultaat = factor(TypeResultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype")),
+         Habitattype = factor(Habitattype, levels = levels(types_cat$type))) %>%
+    select(Versie, schaal, type_resultaat, Habitattype, SBZH, Habitatsubtype, n_obs = nObs,
+         Aandeel_Gunstig = AandeelGunstig,
+         Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI, 
+         Aandeel_Gunstig_ULCI = AandeelGunstig_ULCI)
+
+colnames(status_flanders_cat_tidy) <- str_to_lower(colnames(status_flanders_cat_tidy))
+
+status_flanders_cat_tidy %>%
+  write_vc(root = output_path,
+           file = "status_habitat_fs",
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
+           strict = FALSE)
+```
+
+```{r, fig.cap= "Aandeel gunstig Vlaanderen}
+status_flanders_cat_tidy %>%
+  filter(type_resultaat == "Habitattype") %>%
+  ggplot(aes(x = habitattype, y = aandeel_gunstig, ymin = aandeel_gunstig_llci, ymax = aandeel_gunstig_ulci, label = n_obs)) +
+  geom_point() +
+  geom_pointrange() +
+  geom_hline(yintercept = 75, linetype = 2) +
+  geom_text(hjust = 0, nudge_x = 0.1) +
+  lims(y = c(0,100))
+```
+
+```{r, fig.cap= "Aandeel gunstig sbzh}
+status_flanders_cat_tidy %>%
+  filter(type_resultaat == "SBZH") %>%
+  ggplot(aes(x = sbzh, y = aandeel_gunstig, ymin = aandeel_gunstig_llci, ymax = aandeel_gunstig_ulci, label = n_obs)) +
+  geom_point() +
+  geom_pointrange() +
+  geom_hline(yintercept = 75, linetype = 2) +
+  geom_text(hjust = 0, nudge_x = 0.1) +
+  lims(y = c(0,100)) +
+  facet_wrap(~habitattype)
+```
+
+```{r, fig.cap= "Aandeel gunstig sbzh}
+status_flanders_cat_tidy %>%
+  filter(type_resultaat == "Habitatsubtype") %>%
+  ggplot(aes(x = habitatsubtype, y = aandeel_gunstig, ymin = aandeel_gunstig_llci, ymax = aandeel_gunstig_ulci, label = n_obs)) +
+  geom_point() +
+  geom_pointrange() +
+  geom_hline(yintercept = 75, linetype = 2) +
+  geom_text(hjust = 0, nudge_x = 0.1) +
+  lims(y = c(0,100)) +
+  facet_wrap(~habitattype)
+```
+
+### Meest recente toestand indicator per meetpunt
+
+```{r}
+
+lsvi_indicator_cat_recent <- lsvi_indicator_cat %>%
+  inner_join(select(mhq_su_recent, id, weight_rel,  date), by = "id") %>%
+  mutate(Versie = "Versie 3",
+         SBZH = ifelse(in_sac, "Binnen", "Buiten"),
+         Habitattype = main_type,
+         Habitatsubtype = type,
+         WeightComb = weight_rel,
+         StratumWeight = weight_rel,
+         PlotWeight = 1,
+         Indicator = indicator,
+         Status_indicator = ifelse(status_indicator, 1, 0)
+         ) 
+
+data_indicator <- lsvi_indicator_cat_recent %>%
+  filter(!is.na(Status_indicator))
+
+status_indicatoren_cat <- NULL
+
+for (habt in unique(data_indicator$Habitattype)) {
+  
+    data_habt <- data_indicator %>%
+    filter(Habitattype == habt)
+  
+      for (ind in unique(data_habt$Indicator)) {
+    
+          data_ind <- data_habt %>%
+          filter(Indicator == ind) %>%
+          mutate(Status_habitatvlek = ifelse(Status_indicator, 1, 0))
+          
+          if (nrow(data_ind) > 1) {
+        
+        result_temp <- habitatandeelGunstig(data_ind, stratSBZH = FALSE) %>%
+          mutate(Indicator = ind,
+                 Schaal = "Vlaanderen")
+        
+        status_indicatoren_cat <- bind_rows(status_indicatoren_cat, result_temp)
+        }
+    }
+}
+
+overz_indicatoren <- lsvi_indicator_cat_recent %>%
+  distinct(Habitattype, criterium, Indicator, belang)
+
+status_indicatoren_cat_tidy <- status_indicatoren_cat %>%
+  left_join(overz_indicatoren, by = c("Habitattype", "Indicator")) %>%
+  mutate(type_resultaat = factor(TypeResultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype")),
+         Habitattype = factor(Habitattype, levels = levels(types_cat$type))) %>%
+  select(Versie, Schaal, type_resultaat, Habitattype, SBZH, Habitatsubtype, criterium, Indicator, belang,
+         Aandeel_Gunstig = AandeelGunstig,
+         Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI, 
+         Aandeel_Gunstig_ULCI = AandeelGunstig_ULCI)
+  
+colnames(status_indicatoren_cat_tidy) <- str_to_lower(colnames(status_indicatoren_cat_tidy))
+
+status_indicatoren_cat_tidy %>%
+  write_vc(root = output_path,
+           file = "status_indicatoren_fs",
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
+           strict = FALSE)
+```
+```{r, fig.width = 10}
+status_indicatoren_cat_tidy %>%
+  filter(type_resultaat == "Habitattype") %>%
+  mutate(indicator_short = ifelse(indicator == "sleutelsoorten van het droog tot vochtig kalkrijk duingrasland", "sleutelsoorten vochtig",
+                                ifelse(indicator == "sleutelsoorten van het kalkrijk mosduin en pionierduingrasland", "sleutelsoorten mosduin/pionier", indicator)),
+         indicator_short = str_c(indicator_short, " (", belang, ")")) %>%
+  ggplot(aes(x = indicator_short, y = aandeel_gunstig, ymin = aandeel_gunstig_llci, ymax = aandeel_gunstig_ulci)) +
+  geom_point() +
+  geom_pointrange() +
+  geom_hline(yintercept = 75, linetype = 2) +
+  lims(y = c(0,100)) +
+  facet_wrap(~habitattype, scales = "free", ncol = 2) +
+  coord_flip()
+  
+```
+
+
+## Trend Vlaanderen
+
+### Trend habitatkwaliteit gepaarde plots
+
+```{r}
+lsvi_status_cat_remeasured <- lsvi_status_cat %>%
+  inner_join(select(mhq_su_remeasured, id, weight_paired_rel, date, periode, point_code), by = "id") %>%
+    mutate(Versie = "Versie 3",
+         SBZH = ifelse(in_sac, "Binnen", "Buiten"),
+         Habitattype = main_type,
+         Habitatsubtype = type,
+         WeightComb = weight_paired_rel,
+         StratumWeight = weight_paired_rel,
+         PlotWeight = 1,
+         Status_habitatvlek = ifelse(status_habitatvlek, 1, 0))
+
+periodes <- lsvi_status_cat_remeasured %>%
+  group_by(main_type, periode) %>%
+  summarise(year_min = year(min(date)),
+            year_max = year(max(date))) %>%
+  ungroup()
+
+trend_flanders_cat <- bind_rows(
+  habitatandeelGunstig(lsvi_status_cat_remeasured %>%
+                                                filter(periode == "c_1")) %>%
+    mutate(periode = "c_1"),
+  habitatandeelGunstig(lsvi_status_cat_remeasured %>%
+                                                filter(periode == "c_2")) %>%
+    mutate(periode = "c_2") 
+) %>%
+    left_join(periodes, by = c("periode", "Habitattype" = "main_type")) %>%
+  mutate(schaal = "Vlaanderen",
+         type_resultaat = factor(TypeResultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype")),
+         Habitattype = factor(Habitattype, levels = levels(types_cat$type))) %>%
+    select(Versie, schaal, periode, year_min, year_max, type_resultaat, Habitattype, SBZH, Habitatsubtype, n_obs = nObs,
+         Aandeel_Gunstig = AandeelGunstig,
+         Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI, 
+         Aandeel_Gunstig_ULCI = AandeelGunstig_ULCI)
+
+colnames(trend_flanders_cat) <- str_to_lower(colnames(trend_flanders_cat))
+
+trend_flanders_cat %>%
+  write_vc(root = output_path,
+           file = "trend_habitat_fs",
+           sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
+           strict = FALSE)
+
+```
+
+
+
+```{r}
+remeasured_wide <- lsvi_status_cat_remeasured %>%
+  filter(periode != "extra") %>%
+  select(point_code, SBZH, periode, date, main_type, type, weight_paired_rel, status_habitatvlek, aandeel_gunstig, index_harm_harm) %>%
+  pivot_wider(names_from = "periode", values_from = c("status_habitatvlek", "aandeel_gunstig", "index_harm_harm", "date", "type", "weight_paired_rel")) %>%
+  mutate(diff_year = year(date_c_2) - year(date_c_1))
+
+prop_gunstig <- lsvi_status_cat_remeasured %>%
+  group_by(periode, main_type) %>%
+  summarise(aandeel_gunstig_vl = sum(status_habitatvlek) / n(),
+            index = mean(index_harm_harm),
+            aandeel_ind_gunstig = mean(aandeel_gunstig),
+            n = n()) %>%
+  ungroup()
+
+```
+
+```{r}
+remeasured_wide %>%
+  mutate(trend_local = str_c(ifelse(status_habitatvlek_c_1, "good", "bad"), "-", ifelse(status_habitatvlek_c_2, "good", "bad"))) %>%
+  ggplot(aes(x = SBZH, fill = trend_local)) +
+  geom_bar() +
+  facet_wrap(~main_type)
+```
+
+
+```{r}
+trend_flanders_cat %>%
+  mutate(periode = str_c(year_min, "-", year_max)) %>%
+  filter(type_resultaat == "Habitattype") %>%
+  ggplot(aes(x = periode, y = aandeel_gunstig, ymin = aandeel_gunstig_llci, ymax = aandeel_gunstig_ulci, 
+             label = n_obs)) +
+  geom_point() +
+  geom_errorbar(width = 0.1) +
+  geom_hline(yintercept = 75, linetype = 2) +
+  geom_text(hjust = 0, nudge_x = 0.1) +
+  lims(y = c(0,100)) +
+  facet_wrap(~habitattype, scales = "free")
+```
+
+### Trend indicatoren gepaarde plots
+
+```{r}
+lsvi_indicatoren_cat_remeasured <- lsvi_indicator_cat %>%
+  inner_join(select(mhq_su_remeasured, id, weight_paired_rel, date, periode), by = "id") %>%
+  mutate(Versie = "Versie 3",
+         SBZH = ifelse(in_sac, "Binnen", "Buiten"),
+         Habitattype = main_type,
+         Habitatsubtype = type,
+         WeightComb = weight_paired_rel,
+         StratumWeight = weight_paired_rel,
+         PlotWeight = 1,
+         Indicator = indicator,
+         Status_indicator = ifelse(status_indicator, 1, 0)
+         )  %>%
+  filter(!is.na(status_indicator))
+
+trend_indicator_cat <- bind_rows(aandeel_gunstig_indicator(lsvi_indicatoren_cat_remeasured %>%
+                                    filter(periode == "c_1")) %>%
+                    mutate(periode = "c_1"),
+                  aandeel_gunstig_indicator(lsvi_indicatoren_cat_remeasured %>%
+                                    filter(periode == "c_2")) %>%
+                    mutate(periode = "c_2")
+) %>%
+  left_join(periodes, by = c("periode", "Habitattype" = "main_type")) %>%
+  left_join(overz_indicatoren, by = c("Habitattype", "Indicator")) %>%
+  mutate(type_resultaat = factor(TypeResultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype")),
+         Habitattype = factor(Habitattype, levels = levels(types_cat$type))) %>%
+  select(Versie, Schaal, periode, year_min, year_max, type_resultaat, n_obs = nObs, Habitattype, SBZH, Habitatsubtype, criterium, Indicator, belang,
+         Aandeel_Gunstig = AandeelGunstig,
+         Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI, 
+         AandeelGunstig_ULCI = AandeelGunstig_ULCI)
+  
+colnames(trend_indicator_cat) <- str_to_lower(colnames(trend_indicator_cat))
+
+trend_indicator_cat %>%
+  write_vc(root = output_path,
+           file = "trend_indicatoren_fs",
+           sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
+           strict = FALSE)
+```
+
+```{r figuurAandeelGunstigIndicator, fig.height= 6, fig.width= 10}
+
+trend_indicator_cat %>%
+  filter(type_resultaat == "Habitattype") %>%
+  mutate(indicator_short = ifelse(indicator == "sleutelsoorten van het droog tot vochtig kalkrijk duingrasland", "sleutelsoorten vochtig",
+                                ifelse(indicator == "sleutelsoorten van het kalkrijk mosduin en pionierduingrasland", "sleutelsoorten mosduin/pionier", indicator)),
+         indicator_short = str_c(indicator_short, " (", belang, ")")) %>%
+  ggplot(aes(x = indicator_short, 
+             y= aandeel_gunstig, 
+             colour = periode,
+             shape = periode,
+             ymin= aandeel_gunstig_llci, 
+             ymax = aandeelgunstig_ulci)) + 
+  geom_point(size = 4, alpha = 0.8) +
+  geom_errorbar(width = 0, alpha = 0.6, linewidth = 2) +
+  facet_grid(criterium ~ habitattype, scales = "free_y") + 
+  coord_flip() +
+  labs(x = "Indicator",
+       y = "Aandeel habitat met gunstige staat voor indicator") + 
+  geom_hline(aes(yintercept = 75), 
+             colour = "black", 
+             size = 0.5, 
+             linetype = "dashed", 
+             alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom", 
+        strip.text = element_text(size =12), 
+        axis.text = element_text(size =12)) +
+  scale_y_continuous(breaks=c(0 , 50,  100), 
+                     limits = c(0,100))
+
+```
+```{r figuurAandeelGunstigIndicator2, fig.height= 6, fig.width= 10}
+
+trend_indicator_cat %>%
+  filter(type_resultaat == "Habitattype") %>%
+  mutate(indicator_short = str_c(indicator, " (", belang, ")")) %>%
+  ggplot(aes(x = periode, 
+             y= aandeel_gunstig, 
+             ymin= aandeel_gunstig_llci, 
+             ymax = aandeelgunstig_ulci)) + 
+  geom_point() +
+  geom_errorbar(width = 0.2) +
+  facet_grid(indicator ~ habitattype, scales = "free") + 
+  coord_flip() +
+  labs(x = "Indicator",
+       y = "Aandeel habitat met gunstige staat voor indicator") + 
+  geom_hline(aes(yintercept = 75), 
+             colour = "black", 
+             size = 0.5, 
+             linetype = "dashed", 
+             alpha = 0.5)  +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom", 
+        strip.text = element_text(size =12), 
+        axis.text = element_text(size =12)) +
+  scale_y_continuous(breaks=c(0 , 50,  100), 
+                     limits = c(0,100))
+
+```
