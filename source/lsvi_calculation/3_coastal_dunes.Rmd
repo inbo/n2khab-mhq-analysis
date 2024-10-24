@@ -27,6 +27,8 @@ overzicht_missing_belang <- geefInvoervereisten(Kwaliteitsniveau = 1,Versie = "V
   filter(is.na(Belang))
 
 #write_csv2(overzicht_missing_belang, "../../output/missing_belang.csv")
+
+check_verdroging <- geefSoortenlijstVoorIDs("178")
 ```
 
 ```{r}

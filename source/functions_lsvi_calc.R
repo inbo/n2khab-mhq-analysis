@@ -334,7 +334,8 @@ get_bosconstantie <- function(data_path_extra_var, record_ids = NULL, data_type 
 
   } else if (data_type == "91E0_sf") {
 
-    bosconstantie <- read_vc(file = "bosconstantie_91E0_sf", root = data_path_extra_var)
+    bosconstantie <- read_vc(file = "bosconstantie_91E0_sf", root = data_path_extra_var) %>%
+      mutate(record_id = plot_id)
 
   }
 
@@ -663,7 +664,7 @@ get_voorwaarden_91E0_sf <- function(data_path,
     left_join(site_qualifier, by = "record_id") %>%
     select(-plot_id)
 
-  bosconstantie <- get_bosconstantie(data_path_extra_var, data_type = data_type, record_ids)
+  bosconstantie <- get_bosconstantie(data_path_extra_var, data_type = "91E0_sf")
 
   vw_bosconstantie <- bosconstantie  %>%
     mutate(Indicator = "bosconstantie") %>%
@@ -731,8 +732,10 @@ get_voorwaarden_fs <- function(data_path,
   bosconstantie <- get_bosconstantie(data_path_extra_var, data_type = data_type, record_ids) %>%
     select(record_id, blk)
 
-  vw_bosconstantie <- bosconstantie  %>%
-    inner_join(stand_age, by = c("record_id")) %>%
+  vw_bosconstantie <- stand_age  %>%
+    full_join(bosconstantie, by = c("record_id")) %>%
+    mutate(blk = ifelse(is.na(blk), "missing", blk),
+           stand_age = ifelse(is.na(stand_age), "missing", stand_age)) %>%
     mutate(Voorwaarde = "bosconstantie",
            Waarde = ifelse(blk %in% c("Bos ontstaan voor 1775",
                                       "Bos ontstaan tussen 1775 en 1850") |
@@ -743,7 +746,7 @@ get_voorwaarden_fs <- function(data_path,
                            101,
                            ifelse(blk %in% c("Bos ontstaan tussen 1850 en +/- 1930") |
                                   stand_age %in% c("81 - 100 jaar"), 81,
-                                  ifelse(stand_age %in% c("41 - 60 jaar", "61 - 80 jaar"), 41, 20))),
+                                  ifelse(stand_age %in% c("41 - 60 jaar", "61 - 80 jaar", "ongelijkjarig"), 41, 20))),
     ) %>%
     select(record_id, Voorwaarde, Waarde)
 
@@ -753,21 +756,23 @@ get_voorwaarden_fs <- function(data_path,
     select(record_id, Voorwaarde, Waarde)
 
   data_habitat_type <- data_habitat %>%
-    select(record_id = record_id_square, type_observed)
+    select(record_id = record_id_square, Habitattype)
 
   vw_msa <- get_msa(data_path_extra_var, data_type = data_type, record_ids) %>%
     select(record_id, type, MSA) %>%
     left_join(data_habitat_type, by = "record_id", relationship = "many-to-many") %>%
-    filter(type == type_observed) %>%
+    mutate(type_compare = ifelse(str_sub(Habitattype, 1, 4) == "91E0", Habitattype, str_sub(Habitattype, 1, 4))) %>% #enkel voor 91E0 is msa op subtypeniveau bepaald
+    filter(type == type_compare) %>%
     mutate(Voorwaarde = "MSA") %>%
-    select(record_id, Voorwaarde, Waarde = MSA)
+    select(record_id, Voorwaarde, Waarde = MSA, Habitattype) %>%
+    mutate(ID = str_c(record_id, "_", Habitattype))
 
   voorwaarden <- vw_dead_wood %>%
     bind_rows(vw_bosconstantie) %>%
     bind_rows(vw_mosaic) %>%
-    bind_rows(vw_msa) %>%
+    left_join(select(data_habitat, record_id = record_id_square, ID), by = "record_id") %>%
+    bind_rows(vw_msa) %>% #bevat al ID want type-specifiek
     inner_join(vw_forests, by = c("Voorwaarde")) %>%
-    mutate(ID = record_id) %>%
     select(ID, record_id, Criterium, Indicator ,
            Voorwaarde, Waarde, Type, Eenheid, Invoertype) %>%
     arrange(ID) %>%
@@ -1163,6 +1168,10 @@ get_kenmerken_open_zand <- function(data_path_inboveg, data_path_fieldmap, recor
   return(open_zand)
 }
 
+###############################################################################
+### soorten kenmerken moneos
+###############################################################################
+
 get_soorten_kenmerken_moneos <- function(data_path, record_ids = NULL) {
 
   soorten <- get_soorten_kenmerken(data_path_inboveg = data_path,
@@ -1223,8 +1232,18 @@ get_soorten_kenmerken_fs <- function(data_path, record_ids = NULL, data_type = "
 
   }
 
+  trees_a3a4 <- get_trees_a3a4(data_path, record_ids, data_type) %>%
+    group_by(record_id) %>%
+    summarise(n_trees_a3a4 = n()) %>%
+    ungroup()
+
   veglayers <- get_cover_veglayers_fieldmap(data_path, record_ids) %>%
-    pivot_wider(names_from = "layer", values_from = cover)
+    pivot_wider(names_from = "layer", values_from = cover) %>%
+    left_join(trees_a3a4, by = "record_id") %>%
+    mutate(herblayer = ifelse(is.na(herblayer), 0, herblayer),
+           shrublayer = ifelse(is.na(shrublayer), 0, shrublayer),
+           n_trees_a3a4 = ifelse(is.na(n_trees_a3a4), 0, n_trees_a3a4),
+           treelayer = ifelse(is.na(treelayer), ifelse(n_trees_a3a4 > 1, 5, 0), treelayer)) # indien er meer dan 1 boom in a3a4plot dan beschouwen we boomlaag talrijk aanwezig
 
   if (!"mosslayer" %in% colnames(veglayers)) {
 
@@ -1285,10 +1304,10 @@ calc_growth_classes <- function(data_path, record_ids = NULL){
                            dbh_mm_max, dbh_mm)) %>%
     filter(is.na(status_tree) | status_tree == "levend") %>%
     group_by(plot_id, date_assessment) %>%
-    summarise(groeiklasse4 = sum(dbh_mm >= 70 & dbh_mm < 140, na.rm = TRUE) > 0,
-              groeiklasse5 = sum(dbh_mm >= 140 & dbh_mm < 500, na.rm = TRUE) > 0,
-              groeiklasse6 = sum(dbh_mm >= 500 & dbh_mm < 800, na.rm = TRUE) > 0,
-              groeiklasse7 = sum(dbh_mm >= 800, na.rm = TRUE) > 0) %>%
+    summarise("groeiklasse 4" = sum(dbh_mm >= 70 & dbh_mm < 140, na.rm = TRUE) > 0,
+              "groeiklasse 5" = sum(dbh_mm >= 140 & dbh_mm < 500, na.rm = TRUE) > 0,
+              "groeiklasse 6" = sum(dbh_mm >= 500 & dbh_mm < 800, na.rm = TRUE) > 0,
+              "groeiklasse 7" = sum(dbh_mm >= 800, na.rm = TRUE) > 0) %>%
     ungroup() %>%
     pivot_longer(cols = starts_with("groeiklasse"), names_to = "growth_class", values_to = "value")
 
@@ -1296,7 +1315,7 @@ calc_growth_classes <- function(data_path, record_ids = NULL){
   trees_a2 <- get_trees_a2(data_path, record_ids)
 
   growth_class_3 <- trees_a2 %>%
-    mutate(growth_class = "groeiklasse3",
+    mutate(growth_class = "groeiklasse 3",
            value = TRUE) %>%
     distinct(plot_id, date_assessment, growth_class, value)
 
@@ -1314,7 +1333,7 @@ calc_growth_classes <- function(data_path, record_ids = NULL){
     group_by(plot_id, date_assessment) %>%
     summarise(value = any(genus %in% trees_genus$genus & layer == "herblayer")) %>%
     ungroup() %>%
-    mutate(growth_class = "groeiklasse2")
+    mutate(growth_class = "groeiklasse 2")
 
   growth_classes <- growth_class_4_5_6_7 %>%
     bind_rows(growth_class_2) %>%
@@ -1352,12 +1371,12 @@ calc_growth_classes_vbi <- function(data_path, record_ids = NULL){
 
   # groeiklassen voor levende bomen (dode bomen rekenen we niet mee)
   growth_class_4_5_6_7 <- trees_a3a4 %>%
-    filter(is.na(status_tree) | status_tree == "alive") %>%
+    filter(is.na(status_tree) | status_tree %in% c("alive", "levend")) %>%
     group_by(record_id, plot_id, vbi_cycle) %>%
-    summarise(groeiklasse4 = sum(dbh_mm >= 70 & dbh_mm < 140, na.rm = TRUE) > 0,
-              groeiklasse5 = sum(dbh_mm >= 140 & dbh_mm < 500, na.rm = TRUE) > 0,
-              groeiklasse6 = sum(dbh_mm >= 500 & dbh_mm < 800, na.rm = TRUE) > 0,
-              groeiklasse7 = sum(dbh_mm >= 800, na.rm = TRUE) > 0) %>%
+    summarise("groeiklasse 4" = sum(dbh_mm >= 70 & dbh_mm < 140, na.rm = TRUE) > 0,
+              "groeiklasse 5" = sum(dbh_mm >= 140 & dbh_mm < 500, na.rm = TRUE) > 0,
+              "groeiklasse 6" = sum(dbh_mm >= 500 & dbh_mm < 800, na.rm = TRUE) > 0,
+              "groeiklasse 7" = sum(dbh_mm >= 800, na.rm = TRUE) > 0) %>%
     ungroup() %>%
     pivot_longer(cols = starts_with("groeiklasse"), names_to = "growth_class", values_to = "value") %>%
     mutate(value = as.numeric(value))
@@ -1366,15 +1385,16 @@ calc_growth_classes_vbi <- function(data_path, record_ids = NULL){
 
   #groeiklasse3 komt overeen met A2-boom
   #groeiklasse2 = natuurlijke verjonging (boomsoort in kruidlaag)
+  #ontbrekende waarde = 0
 
   growth_class_2_3 <- analysis_var_vbi %>%
     filter(variable %in% c("natural_reg", "stem_density_a2_ha")) %>%
-    mutate(growth_class = ifelse(variable == "natural_reg", "groeiklasse2",
-                                 ifelse(variable == "stem_density_a2_ha", "groeiklasse3", NA))) %>%
+    mutate(growth_class = ifelse(variable == "natural_reg", "groeiklasse 2",
+                                 ifelse(variable == "stem_density_a2_ha", "groeiklasse 3", NA))) %>%
+    mutate(value = ifelse(is.na(value), 0, value)) %>%
     group_by(plot_id, record_id, vbi_cycle, growth_class) %>%
     summarise(value = ifelse(sum(value) > 0, 1, 0)) %>%
     ungroup()
-
 
   growth_classes <- growth_class_4_5_6_7 %>%
     bind_rows(growth_class_2_3) %>%
@@ -1605,14 +1625,12 @@ calc_volume_tree <- function(trees, n_input, path_vol_parameters) {
 
     vol_parameters_2input <- read_vc(root = path_vol_parameters, file = "vol_parameters_2input")
 
-  trees <- trees %>%
-    left_join(select(vol_parameters, -name_nl), by = "tree_species_id") %>% #code soortnaam identiek voor verschillende periodes, maar soortnaam kan verschillen
-    mutate(diameter_cm = dbh_mm / 10)
-
   ### 2 ingangen
   if (n_input == 2) {
 
     trees_vol <- trees %>%
+      left_join(select(vol_parameters_2input, -name_nl), by = "tree_species_id") %>% #code soortnaam identiek voor verschillende periodes, maar soortnaam kan verschillen
+      mutate(diameter_cm = dbh_mm / 10) %>%
       mutate(volume_m3 = ifelse(formule_type == 1,
                              yes = a + b * perimeter_cm + c * (perimeter_cm^2) + d * (perimeter_cm^3) + e*height_m + f * height_m * perimeter_cm + g * height_m * (perimeter_cm^2),
                              no =  1/1000 *
@@ -1623,10 +1641,12 @@ calc_volume_tree <- function(trees, n_input, path_vol_parameters) {
       select(-a, -b, -c, -d, -e, -f, -g, -formule_type, -tarief) %>%
       mutate(volume_m3 = pmax(0,volume_m3))
 
-  } else if (n_input == 1){
+  } else if (n_input == 1) {
 
     trees_vol <- trees %>%
-      mutate(volume_m3 = a + b * perimeter_cm + c * (perimeter_cm^2) + d *(perimeter_cm^3)) %>%
+      left_join(select(vol_parameters_1input, -name_nl), by = "tree_species_id") %>% #code soortnaam identiek voor verschillende periodes, maar soortnaam kan verschillen
+      mutate(diameter_cm = dbh_mm / 10) %>%
+      mutate(volume_m3 = a + b * perimeter_cm + c * (perimeter_cm^2) + d * (perimeter_cm^3)) %>%
       select(-a, -b, -c, -d,  -tarief) %>%
       mutate(volume_m3 = pmax(0,volume_m3))
 
@@ -1652,7 +1672,7 @@ write_lsvi_results <- function(lsvi_object, path, suffix = "") {
   colnames(lsvi_detail) <- str_to_lower(colnames(lsvi_detail))
 
   write_vc(lsvi_detail, file = str_c("lsvi_detail", suffix), root = path,
-           sorting = c("id", "type_analysis", "voorwaarde"))
+           sorting = c("id", "type_analysis", "voorwaarde"), strict = FALSE)
 
   lsvi_indicator <- lsvi_object$Resultaat_indicator %>%
     mutate(Verschilscore = round(Verschilscore, 4)) %>%
@@ -1661,7 +1681,7 @@ write_lsvi_results <- function(lsvi_object, path, suffix = "") {
   colnames(lsvi_indicator) <- str_to_lower(colnames(lsvi_indicator))
 
   write_vc(lsvi_indicator, file = str_c("lsvi_indicator", suffix), root = path,
-           sorting = c("id", "type_analysis", "indicator"))
+           sorting = c("id", "type_analysis", "indicator"), strict = FALSE)
 
   lsvi_criterium <- lsvi_object$Resultaat_criterium %>%
     select(-Versie, -Kwaliteitsniveau) %>%
@@ -1672,7 +1692,7 @@ write_lsvi_results <- function(lsvi_object, path, suffix = "") {
   colnames(lsvi_criterium) <- str_to_lower(colnames(lsvi_criterium))
 
   write_vc(lsvi_criterium,  file = str_c("lsvi_criterium", suffix), root = path,
-           sorting = c("id", "type_analysis", "criterium"))
+           sorting = c("id", "type_analysis", "criterium"), strict = FALSE)
 
   lsvi_globaal <- lsvi_object$Resultaat_globaal %>%
     select(-Versie, -Kwaliteitsniveau) %>%

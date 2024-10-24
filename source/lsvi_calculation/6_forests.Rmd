@@ -9,9 +9,9 @@ schemes_fs <- mhq_schemes %>%
 
 ```{r}
 overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
-                            Habitattype = as.character(schemes_fs$type),
+                            Habitattype = c(as.character(schemes_fs$type), "9110"),
                             Versie = "Versie 3") %>%
-  distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde, Beoordeling)
+  distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde, Beoordeling, Belang)
 
 ```
 
@@ -25,7 +25,6 @@ overzicht_lsvi %>%
 ## Invoergegevens
 
 ```{r}
-
 data_habitat_mhq_fs <- data_habitat %>%
   mutate(is_type_target = type_observed %in% schemes_fs$type,
          is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(schemes_fs$type, 1, 4)) %>%
@@ -36,13 +35,32 @@ data_habitat_mhq_fs <- data_habitat %>%
          Habitattype = type_observed) %>%
   ungroup() %>%
   filter(is_maintype_target) %>%
-  filter(type_observed != "91E0_sf")
+  filter(type_observed != "91E0_sf") %>%
+  mutate(Habitattype = ifelse(Habitattype == "9130", "9130_end",
+                              ifelse(Habitattype == "91E0", "91E0_va", Habitattype))) %>%
+  mutate(ID = str_c(ID, "_", Habitattype)) #om link te kunnen maken van voorwaarden, want voorwaarde msa is type-specifiek
+
+check <- data_habitat_mhq_fs %>%
+  group_by(ID) %>%
+  filter(n() > 1)
 
 data_habitat_vbi <- classif_vbi %>%
-  mutate(plot_id = as.character(plot_id))
+  mutate(plot_id = as.character(plot_id),
+         Habitattype = type_observed) %>%
+  mutate(Habitattype = ifelse(Habitattype == "9130", "9130_end",
+                              ifelse(Habitattype == "91E0", "91E0_va", Habitattype))) %>%
+  mutate(ID = str_c(ID, "_", Habitattype)) #om link te kunnen maken van voorwaarden, want voorwaarde msa is type-specifiek
+
+check <- data_habitat_vbi %>%
+  group_by(ID) %>%
+  filter(n() > 1)
 
 data_habitat_fs <- data_habitat_mhq_fs %>%
-  bind_rows(data_habitat_vbi)
+  bind_rows(data_habitat_vbi) 
+```
+
+
+```{r}
 
 data_voorwaarden_vbi <- get_voorwaarden_fs(data_path = path_vbi,
                                           data_path_extra_var = path_extra_var,
@@ -56,7 +74,12 @@ data_voorwaarden_mhq <- get_voorwaarden_fs(data_path = path_mhq_anb,
                                           path_vol_parameters = path_vbi)
 
 data_voorwaarden_fs <- data_voorwaarden_vbi %>%
-  bind_rows(data_voorwaarden_mhq)
+  bind_rows(data_voorwaarden_mhq) %>%
+  filter(!(ID == "23257_2015-07-05_9130_end" & Voorwaarde == "bosconstantie" & Waarde == 20)) #dubbele waarde voor bosconstantie
+
+check <- data_voorwaarden_fs %>%
+  group_by(ID, Voorwaarde) %>%
+  filter(n() > 1)
 
 data_soorten_kenm_mhq <- get_soorten_kenmerken_fs(data_path = path_mhq_anb,
                          record_ids =  data_habitat_mhq_fs$record_id_square)
@@ -66,7 +89,9 @@ data_soorten_kenm_vbi <- get_soorten_kenmerken_fs(data_path = path_vbi,
                          data_type = "vbi")
 
 data_soorten_kenm_fs <- data_soorten_kenm_mhq %>%
-  bind_rows(data_soorten_kenm_vbi)
+  bind_rows(data_soorten_kenm_vbi) %>%
+  select(-ID) %>%
+  left_join(select(data_habitat_fs, ID, record_id = record_id_square), by = "record_id")
 
 data_habitat_vbi_91E0_vc <- data_habitat_vbi %>%
   filter(type_observed == "91E0_vc")
@@ -83,22 +108,30 @@ data_habitat_mhq_other <- data_habitat_mhq_fs %>%
 data_basalarea_vbi_other <- calc_basalarea_ha(data_path = path_vbi,
                                                record_ids = data_habitat_vbi_other$record_id_square,
                                                per_segment = TRUE,
-                                              data_type = "vbi")
+                                              data_type = "vbi") %>%
+  select(-ID) %>%
+  left_join(select(data_habitat_vbi_other, ID, record_id = record_id_square), by = "record_id")
 
 data_basalarea_vbi_91E0_vc <- calc_basalarea_ha(data_path = path_vbi,
                                                record_ids = data_habitat_vbi_91E0_vc$record_id_square,
                                                per_segment = FALSE,
-                                               data_type = "vbi")
+                                               data_type = "vbi") %>%
+  select(-ID) %>%
+  left_join(select(data_habitat_vbi_91E0_vc, ID, record_id = record_id_square), by = "record_id")
 
 data_basalarea_mhq_other <- calc_basalarea_ha(data_path = path_mhq_anb,
                                                record_ids = data_habitat_mhq_other$record_id_square,
                                                per_segment = TRUE,
-                                              data_type = "mhq")
+                                              data_type = "mhq") %>%
+  select(-ID) %>%
+  left_join(select(data_habitat_mhq_other, ID, record_id = record_id_square), by = "record_id")
 
 data_basalarea_mhq_91E0_vc <- calc_basalarea_ha(data_path = path_mhq_anb,
                                                record_ids = data_habitat_mhq_91E0_vc$record_id_square,
                                                per_segment = FALSE,
-                                               data_type = "mhq")
+                                               data_type = "mhq") %>%
+  select(-ID) %>%
+  left_join(select(data_habitat_mhq_91E0_vc, ID, record_id = record_id_square), by = "record_id")
   
 cover_without_populus <- data_soorten_kenm_fs %>%
   filter(!is.na(Vegetatielaag) & Vegetatielaag %in% c("boomlaag", "struiklaag")) %>%
@@ -131,24 +164,53 @@ data_basalarea_fs <- data_basalarea_vbi_other %>%
 
 data_basalarea_fs <- data_basalarea_fs %>%
   filter(!remove_populus) %>%
-  select(-popolus_present, -remove_populus, -cover_treelayer_nopop, -plot_id, -segment_id, -type_observed)
+  select(-popolus_present, -remove_populus, -cover_treelayer_nopop, -plot_id, -segment_id, -type_observed) %>%
+  group_by(ID, record_id,Vegetatielaag, Kenmerk, TypeKenmerk, Type, Eenheid) %>%
+  summarise(Waarde = sum(Waarde)) %>%
+  ungroup()
+
+check <- data_basalarea_fs %>%
+  group_by(ID, Kenmerk) %>%
+  filter(n() > 1)
+
+dummy_boom <- "Quercus palustris" #behoort tot geen enkele soortengroep LSVI indicatoren
+dummy_kruid <- "Scrophularia nodosa L." #behoort tot geen enkele soortengroep LSVI indicatoren
 
 data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
   bind_rows(data_basalarea_fs) %>%
   mutate(Kenmerk = ifelse(Kenmerk == "Loofhout", "Quercus", Kenmerk),
          Kenmerk = ifelse(Kenmerk == "Naaldhout", "Pinus", Kenmerk),
-         Kenmerk = ifelse(Kenmerk == "F. excelsior/A. pseudoplatanus", "Fraxinus excelsior", Kenmerk),
+         Kenmerk = ifelse(Kenmerk %in% c("NA NA", "Bamboe"), dummy_boom, Kenmerk),
+         Kenmerk = ifelse(Kenmerk %in% c("ANDERE SOORT", "Spartina townsendii H. et J. Groves") & Vegetatielaag != "boomlaag", dummy_kruid, Kenmerk),
+         Kenmerk = ifelse(Kenmerk %in% c("F. excelsior/A. pseudoplatanus", "Fraxinus/Acer"), "Fraxinus excelsior", Kenmerk),
          Kenmerk = ifelse(Kenmerk == "Picaea abies", "Picea abies", Kenmerk), #foute spelling
          Kenmerk = ifelse(Kenmerk == "Platanus hispanica L.", "Platanus", Kenmerk), # soort niet herkend
-         Kenmerk = ifelse(Kenmerk == "Alnus x pubescens Tausch", "Alnus glutinosa x incana", Kenmerk), # soort niet herkend
-         Kenmerk = ifelse(Kenmerk == "Salix x reichardtii A. Kerner", "Salix", Kenmerk), # soort niet herkend
-         Kenmerk = ifelse(Kenmerk == "Taraxacum Wiggers sectie Subvulgaria Christians.", "Taraxacum Wiggers", Kenmerk),
+         Kenmerk = ifelse(Kenmerk == "Alnus x pubescens Tausch", "Alnus", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk %in% c("Salix x reichardtii A. Kerner", "Salix spp. (broad leaves)", "Salix spp. (small leaves)"), "Salix", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk %in% c("Taraxacum Wiggers sectie Subvulgaria Christians.",
+                                         "Taraxacum Wiggers sectie Subvulgaria Chr.", "Taraxacum Wiggers sectie Subvulgaria Chr"),
+                          "Taraxacum Wiggers", Kenmerk),
          Kenmerk = ifelse(Kenmerk == "Populus x canadensis Moench", "Populus", Kenmerk), # soort niet herkend
+         Kenmerk = ifelse(Kenmerk %in% c("Populus alba (+ P. x canescens)", "Populus alba/canescens"), "Populus alba", Kenmerk), # geeft foute berekening, beide soorten geen indicatorsoort
          Kenmerk = ifelse(Kenmerk == "Rumex x pratensis Mert. et Koch", "Rumex", Kenmerk), # soort niet herkend
          Kenmerk = ifelse(Kenmerk == "Platanus x hispanica Mill. ex Münchh.", "Platanus", Kenmerk), # soort niet herkend
          Kenmerk = ifelse(Kenmerk == "Tilia x europaea L.", "Tilia", Kenmerk), # soort niet herkend
          Kenmerk = ifelse(Kenmerk %in% c("Cedrus atlantica (Endl.) Carr.", "Cedrus libani A. Rich.", "Sequoiadendron giganteum", "Sequoia", "Cupressus"), "Picea", Kenmerk)) %>% #exoten die niet herkend worden 
-  arrange(ID)
+  arrange(ID) %>%
+  group_by(ID, record_id, Vegetatielaag, Kenmerk, TypeKenmerk, Type, Eenheid, Invoertype) %>%
+  summarise(Waarde = sum(Waarde)) %>%
+  ungroup()
+
+check <- data_soorten_kenm_fs %>%
+  group_by(ID, Kenmerk, Vegetatielaag, TypeKenmerk) %>%
+  filter(n() > 1)
+
+check_soortenlijst <- geefSoortenlijst(Habitatgroep = "Bossen en struwelen") %>%
+  mutate(Kenmerk = WetNaam)
+
+dummy_soorten <- data_soorten_kenm_fs %>%
+  anti_join(check_soortenlijst, by = "Kenmerk") %>%
+  distinct(Vegetatielaag, Kenmerk)
 ```
 
 ## Berekening voorwaarden
@@ -203,9 +265,6 @@ subtypes_fs <- types %>%
   filter(typelevel == "subtype") %>%
   select(type_observed = main_type, Habitattype = type) 
 
-data_habitat_fs <- data_habitat_fs %>%
-  mutate(Habitattype = ifelse(Habitattype == "9130", "9130_end",
-                              ifelse(Habitattype == "91E0", "91E0_va", Habitattype)))
 ```
 
 ### Voorwaarden
@@ -213,29 +272,32 @@ data_habitat_fs <- data_habitat_fs %>%
 ```{r}
 voorwaarden_fs  <- overzicht_lsvi %>%
   semi_join(data_voorwaarden_fs , by = "Voorwaarde") %>%
-  select(Habitatsubtype, Criterium, Indicator, Voorwaarde) %>%
-  mutate(Voorwaarde = ifelse(Habitatsubtype == "2310" & Indicator == "horizontale structuur", 
-                             "bedekking open vegetaties en kaal zand", 
-                             Voorwaarde))
+  select(Habitatsubtype, Criterium, Indicator, Voorwaarde) 
 
 check <- voorwaarden_fs %>%
   distinct(Indicator, Voorwaarde)
 
-voorwaarde_plot_type <- data_voorwaarden_fs  %>%
-  distinct(Voorwaarde, plot_type, Eenheid, Type)
+voorwaarde_type <- data_voorwaarden_fs  %>%
+  distinct(Voorwaarde, Eenheid, Type)
 
 check_voorwaarden <- data_habitat_fs  %>%
   rename(Habitatsubtype = Habitattype) %>%
   left_join(voorwaarden_fs , by = "Habitatsubtype") %>%
-  left_join(voorwaarde_plot_type, by = "Voorwaarde") %>%
-  left_join(select(data_voorwaarden_fs , -Eenheid, -Type), by = c("ID", "Criterium", "Indicator", "Voorwaarde", "plot_type")) %>%
+  left_join(voorwaarde_type, by = "Voorwaarde") %>%
+  left_join(select(data_voorwaarden_fs , -Eenheid, -Type), by = c("ID", "Criterium", "Indicator", "Voorwaarde")) %>%
   filter(!is.na(Voorwaarde)) %>%
   group_by(ID) %>%
-  mutate(all_missing = all(is.na(Waarde))) %>%
+  mutate(all_missing = all(is.na(Waarde)),
+         any_missing = any(is.na(Waarde)),
+         n_v = n_distinct(Voorwaarde)) %>%
   ungroup()
 
-voorwaarden_record_missing <- check_voorwaarden %>%
-  filter(is.na(record_id)) %>%
+check <- check_voorwaarden %>%
+  group_by(ID, Voorwaarde) %>%
+  filter(n() > 1)
+
+voorwaarden_missing <- check_voorwaarden %>%
+  filter(any_missing) %>%
   select(ID, record_id_square, record_id_circle, date, Habitatsubtype, Indicator, Voorwaarde, Waarde)
 
 plots_all_missing <- check_voorwaarden %>%
@@ -243,22 +305,20 @@ plots_all_missing <- check_voorwaarden %>%
 
 ```
 
-Na controle: ontbrekende waarden = 0 indien er een opname in inboveg zit.
+Ontbrekende waarden voor 'dik dood hout' en 'aandeel dood hout' worden veroorzaakt door de afwezigheid van bomen in de a3 en a4 plot.
+In dat geval stellen we beide variabelen = 0.
 
-Bij plot '1287030_2019-08-13' ontbreken alle structuurvariabelen. 
-Deze plot laten we weg uit de analyse.
+Ontbrekende waarden voor 'msa' betekent dat het meetpunt niet in een boscluster valt.
+We veronderstellen in dat geval msa = 0.
+
 
 ```{r}
 
 data_voorwaarden_fs <- check_voorwaarden %>%
   filter(!all_missing) %>%
   mutate(Waarde = ifelse(is.na(Waarde), 0, Waarde)) %>%
-  select(ID, record_id, plot_type, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
-  unique() %>%
-  mutate(Voorwaarde = ifelse(Voorwaarde == "bedekking open vegetaties en kaal zand",
-                             "bedekking open vegetaties", Voorwaarde)) %>%
-  unique()
-# in LSVI tabel heet de voorwaarde bij indocator horizontale structuur 'bedekking open vegetaties', maar gaat eigenlijk over 'bedekking open vegetaties en kaal zand'
+  select(ID, record_id, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
+  unique() 
 
 data_habitat_fs <- data_habitat_fs %>%
   anti_join(plots_all_missing, by = "ID")
@@ -270,9 +330,34 @@ data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
 ### Vegetatiegegevens
 
 ```{r}
-check_missingveg <- data_habitat_fs  %>%
+check_missingkenmerken <- data_habitat_fs  %>%
   rename(record_id = record_id_square) %>%
   anti_join(data_soorten_kenm_fs, by = c("record_id"))
+
+data_cover <- data_soorten_kenm_fs %>%
+  group_by(ID) %>%
+  filter(any(Eenheid == "%"))
+
+data_layer <- data_soorten_kenm_fs %>%
+  group_by(ID) %>%
+  filter(any(str_detect(Kenmerk, "laag")))
+
+data_cover_herbs <- data_soorten_kenm_fs %>%
+  group_by(ID) %>%
+  filter(any(Eenheid == "%" & Vegetatielaag == "kruidlaag"))
+
+check_missing_cover <- data_habitat_fs  %>%
+  rename(record_id = record_id_square) %>%
+  anti_join(data_cover, by = c("record_id"))
+
+check_missing_layer <- data_habitat_fs  %>%
+  rename(record_id = record_id_square) %>%
+  anti_join(data_layer, by = c("record_id"))
+
+check_missing_cover_herbs <- data_habitat_fs  %>%
+  rename(record_id = record_id_square) %>%
+  anti_join(data_cover_herbs, by = c("record_id")) %>%
+  anti_join(check_missing_cover, by = c("record_id"))
 
 check_missingvalue <- data_habitat_fs  %>%
   rename(record_id = record_id_square) %>%
@@ -295,62 +380,102 @@ missing_cover_plot <- check_missingvalue %>%
   ungroup() %>%
   filter(any_missing_cover)
 
-double <- data_soorten_kenm_fs %>%
+double_cover <- data_soorten_kenm_fs %>%
   filter(!is.na(Kenmerk)) %>%
-  group_by(ID, record_id, Kenmerk, Vegetatielaag) %>%
+  group_by(ID, record_id, Kenmerk, Vegetatielaag, TypeKenmerk) %>%
   filter(n() > 1)
   
 data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
-  filter(!is.na(Kenmerk))
+  filter(!is.na(Kenmerk)) %>%
+  mutate(Waarde = ifelse(is.na(Waarde), 1, Waarde)) %>%
+  anti_join(check_missing_cover, by = "ID")
+
+data_habitat_fs <- data_habitat_fs %>%
+  anti_join(check_missing_cover, by = "ID")
+
+data_voorwaarden_fs <- data_voorwaarden_fs %>%
+  anti_join(check_missing_cover, by = "ID")
 
 ```
 
-Onbekende soortnamen in kruidlaag --> Calluna dood, Erica dood
-Onbekende soortnamen in korstmoslaag --> korstmos spec. 
+Voor een aantal opnames ontbreekt de vegetatieopname.
+We gaan er van uit dat er steeds vegetatie aanwezig is in boshabitats en beschouwen dit als ontbrekende waarden.
+Deze opnames worden daarom niet gerbuikt voor de lsvi-analyse.
 
-Deze ontbrekende soortnamen hebben geen impact op LSVI
+Ontbrekende bedekking van soorten: 
++ enkel van belang voor soorten in de kruidlaag en voor exoten in de struik/boomlaag
++ we veronderstellen een bedekking van 1% voor soorten in de kruidlaag
 
-Ontbrekende bedekking van soorten soms wel een probleem: sleutelsoorten moeten talrijk aanwezig zijn voor habitattype 2330 en 4010.
-Maar voornamelijk bij mossoorten ontbreken de bedekking. 
-Enkel bij 2330_bu is er één mossoort (Polytrichum piliferum) bij de sleutelsoorten (die dus talrijk aanwezig moeten zijn).
-
-Voor volgende plots ontbreekt de bedekking van Polytrichum piliferum.
-Is aanwezigheid voldoende?
-
-```{r}
-check_missingvalue %>%
-  filter(is.na(Waarde)) %>%
-  filter(Kenmerk == "Polytrichum piliferum") %>%
-  select(ID, Habitattype, Kenmerk, Waarde) %>%
-  datatable(rownames = FALSE, filter = "top")
-```
-
-Voor volgende plots zijn er ontbrekende bedekkingen in de vegetatielaag.
-Geen van deze plots bevat voldoende sleutelsoorten om gunstig te kunnen scoren.
+In een aantal opnames wordt 'Dryopteris dilatata & carthusiana' als soortnaam vermeld.
+We veronderstellen dat dit om de gezamenlijke bedekking gaat van Brede stekelvaren en Smalle stekelvaren.
+Brede stekelstaart is een indicator voor verruiging.
+Smalle stekelstaart een sleutelsoort van 9130 en 9160.
+In geval van 'Dryopteris dilatata & carthusiana' veronderstellen we dat beide soorten aanwezig zijn met elk de helft van de ingevoerde gezamenlijke bedekking.
 
 ```{r}
-check_missingvalue %>%
-filter(Vegetatielaag == "kruidlaag") %>%
-  group_by(ID) %>%
-  filter(any(is.na(Waarde))) %>%
-  ungroup() %>%
-  select(ID, Vegetatielaag, Habitattype, Kenmerk, Waarde) %>%
-  datatable(rownames = FALSE,
-            filter = "top")
-```
+stekelvaren <- data_soorten_kenm_fs %>%
+  filter(Kenmerk == "Dryopteris dilatata & carthusiana")
+  
+dilatata <- stekelvaren %>%
+  mutate(Kenmerk = "Dryopteris dilatata (Hoffmann) A. Gray",
+         Waarde = Waarde / 2)
 
-```{r}
-data_habitat_test <- data_habitat_fs %>%
-  group_by(Habitattype) %>%
-  slice_head(n = 1) %>%
+carthusiana <- stekelvaren %>%
+  mutate(Kenmerk = "Dryopteris carthusiana (Vill.) H.P. Fuchs",
+         Waarde = Waarde / 2)
+
+data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
+  filter(Kenmerk != "Dryopteris dilatata & carthusiana") %>%
+  bind_rows(dilatata, carthusiana) %>%
+  arrange(ID) %>%
+  group_by(ID, record_id, Vegetatielaag, Kenmerk, TypeKenmerk, Type, Eenheid, Invoertype) %>%
+  summarise(Waarde = sum(Waarde)) %>%
   ungroup()
+
 ```
 
-## TEST 2310
+als de bedekking van de vegetatielagen ontbreekt dan bereken we die op basis van de bedekking van de soorten.
 
 ```{r}
+cover_layer_add <- data_soorten_kenm_fs %>%
+  semi_join(check_missing_layer, by = "ID") %>%
+  filter(Type == "Percentage") %>%
+  group_by(ID, record_id, Vegetatielaag, Type, Eenheid, Invoertype) %>%
+  summarise(Waarde = (1 - prod(1 - Waarde/100)) * 100) %>%
+  ungroup() %>%
+  rename(Kenmerk = Vegetatielaag) %>%
+  mutate(Kenmerk = ifelse(Kenmerk == "kruidlaag", "kruidlaag (incl. moslaag)", Kenmerk),
+         TypeKenmerk = "studiegroep")
+
+data_soorten_kenm_fs <- data_soorten_kenm_fs %>%
+  bind_rows(cover_layer_add) %>%
+  arrange(ID)
+```
+
+Als er enkel soorten in de boomlaag of struiklaag werden waargenomen en niet in de kruidlaag dan stellen we aandeel sleutelsoorten in kruidlaag = 0 via data_voorwaarden (zo niet genereert de rekenmodule een NA).
+
+```{r}
+data_voorwaarden_add <- check_missing_cover_herbs %>%
+  select(ID, record_id) %>%
+  mutate(Criterium = "Vegetatie",
+         Indicator = "sleutelsoorten van de kruidlaag",
+         Voorwaarde = "aandeel sleutelsoorten kruidlaag",
+         Waarde = 0,
+         Type = "Percentage",
+         Eenheid = "%")
+
+data_voorwaarden_fs <- data_voorwaarden_fs %>%
+  bind_rows(data_voorwaarden_add) %>%
+  arrange(ID)
+```
+
+
+## TEST 9120
+
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_fs %>%
-  filter(Habitattype == "2310")
+  filter(Habitattype %in% c("9120_qb", "9120")) %>%
+  slice_tail(n = 50)
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
@@ -364,20 +489,15 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
 test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 ```
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Volgende soortnamen zijn niet teruggevonden in de databank: Dicranella species, Polytrichum species, Pseudoscleropodium species, Hypnum species.  Check de spelling en/of laat de auteursnaam weg bij genera.
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Voor opname 476086_2014-09-04 zijn in de moslaag de synoniemen 'Polytrichum species' en 'Pseudoscleropodium species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
+
+
+
+## TEST 9130
+
+```{r, eval = FALSE}
+data_habitat_test_type <- data_habitat_fs %>%
+  filter(Habitattype == "9130_end")
   
---> mossoorten --> heeft geen impact op LSVI --> OK
-
-
-## TEST 2330_bu
-
-```{r}
-data_habitat_test_type <- data_habitat_fs %>%
-  filter(Habitattype == "2330_bu") 
-
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
@@ -390,72 +510,34 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
 test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 ```
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Volgende soortnamen zijn niet teruggevonden in de databank: Polytrichum species, Dicranella species, Leptobryum species, Taraxacum Wiggers sectie Subvulgaria Christians., Pohlia species, Eurhynchium species, Hypnum species.  Check de spelling en/of laat de auteursnaam weg bij genera.
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Voor opname 1547090_2017-07-13 zijn in de moslaag de synoniemen 'Dicranella species' en 'Leptobryum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 177078_2014-09-10 zijn in de moslaag de synoniemen 'Dicranella species' en 'Polytrichum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 225910_2014-09-23 zijn in de moslaag de synoniemen 'Dicranella species' en 'Polytrichum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 714230_2016-09-28 zijn in de moslaag de synoniemen 'Eurhynchium species' en 'Hypnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
+
+## TEST 9160
+
+```{r, eval = FALSE}
+data_habitat_test_type <- data_habitat_fs %>%
+  filter(Habitattype == "9160") 
+
+
+  test <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_test_type,
+                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
+                           semi_join(data_habitat_test_type, by = "ID"),
+                         Data_voorwaarden = data_voorwaarden_fs %>%
+                           semi_join(data_habitat_test_type, by = "ID"))
   
---> mossen geen impact op LSVI
---> 1 record met Taraxacum Wiggers sectie Subvulgaria Christians. --> geen impact op LSVI
-
-## TEST 2330_dw
-
-```{r}
-data_habitat_test_type <- data_habitat_fs %>%
-  filter(Habitattype == "2330_dw") 
-
-test <- berekenLSVIbasis(Versie = "Versie 3",
-                         Kwaliteitsniveau = 1,
-                         Aggregatiemethode = "RapportageHR",
-                         Data_habitat = data_habitat_test_type,
-                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
-                           semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_fs %>%
-                           semi_join(data_habitat_test_type, by = "ID"))
-
 test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
-
-#check voorwaarde éénjarigen
-
-soorten_enkelkruid <- data_soorten_kenm_fs %>%
-  filter(Vegetatielaag == "kruidlaag" | is.na(Vegetatielaag))
-
-test_eenj <- berekenLSVIbasis(Versie = "Versie 3",
-                         Kwaliteitsniveau = 1,
-                         Aggregatiemethode = "RapportageHR",
-                         Data_habitat = data_habitat_test_type,
-                         Data_soortenKenmerken = soorten_enkelkruid %>%
-                           semi_join(data_habitat_test_type, by = "ID"),
-                         Data_voorwaarden = data_voorwaarden_fs %>%
-                           semi_join(data_habitat_test_type, by = "ID")) 
-
-test_eenj <- test_eenj$Resultaat_detail %>%
-  select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore) %>%
-  filter(Indicator == "éénjarigen") 
-
-compare_eenj <- test %>%
-  select(ID, Habitattype, Indicator, Referentiewaarde, Waarde, Status_voorwaarde) %>%
-  filter(Indicator == "éénjarigen") %>%
-  left_join(select(test_eenj, ID, Habitattype, Indicator, Referentiewaarde, Waarde, Status_voorwaarde), 
-            by = c("ID", "Habitattype", "Indicator"),
-            suffix = c("_orig", "_corr"))
 ```
 
-Aandeel meerjarige kruiden wordt berekend als de som van de bedekking van alles soorten exclusief éénjarigen; dus bedekking van bomen en mos worden ook meegrekend. 
-Maar zou enkel kruidachtigen moeten zijn. 
-De voorwaarde éénjarigen daarom opnieuw berekenen met enkel de soorten uit de kruidlaag en 'open zand'.
-
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Volgende soortnamen zijn niet teruggevonden in de databank: Dicranella species.  Check de spelling en/of laat de auteursnaam weg bij genera.
   --> OK
 
-## TEST 4010
+## TEST 9190
 
-```{r}
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_fs %>%
-  filter(Habitattype == "4010") %>%
-  filter(ID == "23538_2022-09-01")
+  filter(Habitattype == "9190")
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
@@ -469,19 +551,14 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
 test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 ```
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Volgende soortnamen zijn niet teruggevonden in de databank: Sphagnum species, Dicranella species, Hypnum species, Sphagnum magellanicum Brid..  Check de spelling en/of laat de auteursnaam weg bij genera.
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Voor opname 120110_2014-09-24 zijn in de moslaag de synoniemen 'Dicranella species' en 'Sphagnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 35090_2015-09-24 zijn in de moslaag de synoniemen 'Dicranella species' en 'Sphagnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 35090_2019-08-21 zijn in de struiklaag de synoniemen 'Betula alba L.' en 'Betula pendula Roth' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
 
-Sphagnum magellanicum Brid. --> geen sleutelsoort
-13 anb-plots met Sphagnum species --> worden niet meegerekend als sleutelsoort
 
-## TEST 4030
 
-```{r}
+## TEST 91E0
+
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_fs %>%
-  filter(Habitattype == "4030")
+  filter(Habitattype %in% c("91E0_va", "91E0_vc", "91E0_vn", "91E0_vo", "91E0_vm"))
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
@@ -495,31 +572,22 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
 test <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 ```
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Volgende soortnamen zijn niet teruggevonden in de databank: Dicranella species, Hypnum species, Polytrichum species, Fontinalis species, Pseudoscleropodium species, Sphagnum species, Taraxacum Wiggers sectie Subvulgaria Christians., Bryum species, ANDERE SOORT.  Check de spelling en/of laat de auteursnaam weg bij genera.
-Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieLSVIhabitats,  :
-  Voor opname 21430_2014-09-09 zijn in de moslaag de synoniemen 'Dicranella species' en 'Hypnum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap); Voor opname 42934_2014-09-10 zijn in de moslaag de synoniemen 'Fontinalis species' en 'Polytrichum species' beschouwd als eenzelfde taxon met aggregatie van de bedekkingen (rekening houdend met gedeeltelijke overlap)
-  
-  
---> Niet herkende soorten hebben geen impact op LSVI
+
 
 ## LSVI-berekening
 
 ```{r}
 
-input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/input") 
-
-data_voorwaarden_fs  <- data_voorwaarden_fs  %>%
-  filter(!(is.na(Waarde) & (Type == "Ja/nee")))
+input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/forests/input") 
 
 write_vc(data_voorwaarden_fs , file = "data_voorwaarden_fs ", root = input_path, 
          sorting = c("ID", "Voorwaarde"))
 write_vc(data_habitat_fs, file = "data_habitat_fs ", root = input_path, 
          sorting = c("ID", "Habitattype"))
 write_vc(data_soorten_kenm_fs, file = "data_soorten_kenm_fs ", root = input_path, 
-         sorting = c("ID", "Vegetatielaag", "Kenmerk"))
+         sorting = c("ID", "Vegetatielaag", "Kenmerk", "Eenheid"), strict = FALSE)
 
-lsvi_fs  <- berekenLSVIbasis(Versie = "Versie 3",
+lsvi_fs <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_fs ,
@@ -529,44 +597,63 @@ lsvi_fs  <- berekenLSVIbasis(Versie = "Versie 3",
 
 ```
 
-### Manuele correctie
+### Check missing voorwaarden
 
-We berekenen de indicator 'éénjarigen' bij 2330_dw opnieuw, maar deze keer enkel met soorten uit de kruidlaag.
+```{r}
+missing_voorwaarde <- lsvi_fs$Resultaat_detail %>%
+  group_by(Habitattype, Voorwaarde) %>%
+  mutate(n_totaal = n()) %>%
+  ungroup() %>%
+  filter(is.na(Waarde)) %>%
+  group_by(Habitattype, Voorwaarde, Belang, n_totaal) %>%
+  summarise(n_missing = n(),
+            plots_missing = str_c(ID, collapse = "; ")) %>%
+  ungroup() %>%
+  mutate(plots_missing = ifelse(n_missing < n_totaal,
+                                plots_missing, ""))
+
+check_indicator <- lsvi_fs$Resultaat_indicator
+```
+
+```{r}
+missing_voorwaarde %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+### Check aantal groeiklassen = 0
+
+```{r}
+check_gc <- lsvi_fs$Resultaat_detail %>%
+  filter(Voorwaarde == "aantal groeiklassen aanwezig", Waarde <= 1) %>%
+  select(record_id = record_id_square, Waarde) %>%
+  left_join(assessments_mhq_anb %>%
+              mutate(record_id = str_c(plot_id, "_", date_assessment)), by = "record_id")
+```
+
+
+
+### Check missing belang
+
+```{r}
+missing_belang <- lsvi_fs$Resultaat_detail %>%
+  filter(is.na(Belang)) %>%
+  distinct(Habitattype, Voorwaarde, Belang)
+```
+
+```{r}
+missing_belang %>%
+  datatable(rownames = FALSE)
+```
+
+### Manuele correctie
 
 ```{r}
 
-data_habitat_2330_dw <- data_habitat_fs %>%
-  filter(Habitattype == "2330_dw")
-
-lsvi_eenjarigen <- berekenLSVIbasis(Versie = "Versie 3",
-                         Kwaliteitsniveau = 1,
-                         Aggregatiemethode = "RapportageHR",
-                         Data_habitat = data_habitat_2330_dw ,
-                         Data_voorwaarden = data_voorwaarden_fs %>%
-                           semi_join(data_habitat_2330_dw, by = "ID"),
-                         Data_soortenKenmerken = data_soorten_kenm_fs %>%
-                           semi_join(data_habitat_2330_dw, by = "ID") %>%
-                           filter(Vegetatielaag == "kruidlaag" | is.na(Vegetatielaag)),
-                         na.rm = TRUE)
-
-lsvi_eenjarigen_vw <- lsvi_eenjarigen$Resultaat_detail %>%
-  filter(Indicator == "éénjarigen")
-
-lsvi_eenjarigen_ind <- lsvi_eenjarigen$Resultaat_indicator %>%
-  filter(Indicator == "éénjarigen")
-
-lsvi_fs$Resultaat_detail <- lsvi_fs$Resultaat_detail %>%
-  anti_join(lsvi_eenjarigen_vw, by = c("ID", "Indicator")) %>%
-  bind_rows(lsvi_eenjarigen_vw) %>%
-  arrange(ID, Habitattype, Criterium, Indicator)
-
-lsvi_fs$Resultaat_indicator <- lsvi_fs$Resultaat_indicator %>%
-  anti_join(lsvi_eenjarigen_ind, by = c("ID", "Indicator")) %>%
-  bind_rows(lsvi_eenjarigen_ind) %>%
-  arrange(ID, Habitattype, Criterium, Indicator)
-
 correct_status_globaal <- lsvi_fs$Resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
+  filter(Indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
+  filter(Indicator != "hoeveelheid dik dood hout") %>%
   group_by(ID, Criterium) %>%
   mutate(weight_crit = 1/n()) %>%
   ungroup() %>%
@@ -574,16 +661,19 @@ correct_status_globaal <- lsvi_fs$Resultaat_indicator %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
+            zb_ongunstig = str_c(ifelse(Status_indicator == FALSE & Belang == "zb", Indicator, ""), collapse = "; "),
             aandeel_gunstig = n_gunstig / n_ind * 100,
             status_habitatvlek =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
             index_mean_ind = round(mean(Verschilscore), 6),
             index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 6)
             ) %>%
   ungroup() %>%
-  select(ID, Habitattype, n_zb_ongunstig, aandeel_gunstig, status_habitatvlek, index_mean_ind, index_mean_crit)
+  select(ID, Habitattype, n_zb_ongunstig, zb_ongunstig, aandeel_gunstig, status_habitatvlek, index_mean_ind, index_mean_crit)
 
 correct_status_criterium <- lsvi_fs$Resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
+  filter(Indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
+  filter(Indicator != "hoeveelheid dik dood hout") %>%
   group_by(ID, Habitattype, Criterium) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
@@ -608,44 +698,16 @@ lsvi_fs$Resultaat_criterium <- lsvi_fs$Resultaat_criterium %>%
 ```
 
 
-
-
-
-
-### Check missing voorwaarden
-
 ```{r}
-missing_voorwaarde <- lsvi_fs$Resultaat_detail %>%
-  group_by(Habitattype, Voorwaarde) %>%
-  mutate(n_totaal = n()) %>%
-  ungroup() %>%
-  filter(is.na(Waarde)) %>%
-  group_by(Habitattype, Voorwaarde, Belang, n_totaal) %>%
-  summarise(n_missing = n(),
-            plots_missing = str_c(ID, collapse = "; ")) %>%
-  ungroup() %>%
-  mutate(plots_missing = ifelse(n_missing < n_totaal,
-                                plots_missing, ""))
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/forests/result") 
+
+lsvi_fs$Resultaat_detail$plot_type <- "vbi"
+
+lsvi_fs %>%
+  write_lsvi_results(path = output_path, suffix = "_fs")
 ```
 
-```{r}
-missing_voorwaarde %>%
-  datatable(rownames = FALSE,
-            filter = "top")
-```
 
-### Check missing belang
-
-```{r}
-missing_belang <- lsvi_fs$Resultaat_detail %>%
-  filter(is.na(Belang)) %>%
-  distinct(Habitattype, Voorwaarde, Belang)
-```
-
-```{r}
-missing_belang %>%
-  datatable(rownames = FALSE)
-```
 
 ### Preview
 
@@ -659,12 +721,13 @@ lsvi_fs$Resultaat_globaal %>%
 lsvi_fs$Resultaat_criterium %>%
   ggplot(aes(fill = Status_criterium, x = Criterium)) +
   geom_bar() +
-  facet_wrap(~Habitattype) +
+  facet_wrap(~Habitattype, scales = "free") +
   coord_flip()
 ```
 
 ```{r, fig.width=9}
 lsvi_fs$Resultaat_indicator %>%
+  filter(Habitattype %in% c("9120")) %>%
   ggplot(aes(fill = Status_indicator, x = Indicator)) +
   geom_bar() +
   facet_wrap(~Habitattype, scales = "free", ncol = 2) +

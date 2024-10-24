@@ -54,13 +54,14 @@ coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_
 path_mhq_anb <- file.path(fileman_up("n2khab-mhq-data"), "processed/fieldmap_mhq")
 
 classif_mhq_anb <- read_vc(root = path_mhq_anb, file = "type_observed")
+assessments_mhq_anb <- read_vc(root = path_mhq_anb, file = "assessments")
 structure_mhq_anb <- read_vc(root = path_mhq_anb, file = "structure_vars")
 vegetation_mhq_anb <- read_vc(root = path_mhq_anb, file = "cover_species")
 veglayers_mhq_anb <- get_cover_veglayers_fieldmap(path_mhq_anb)
 
-pq_mhq_anb <- classif_mhq_anb %>%
-  distinct(date_assessment, plot_id) %>%
-  semi_join(vegetation_mhq_anb, by = c("plot_id", "date_assessment"))
+pq_mhq_anb <- assessments_mhq_anb %>%
+  distinct(plot_id, date_assessment, lsvi_measurement, dendro_record, cover_species_record) %>%
+  filter(lsvi_measurement)
 ```
 
 ## VBI data
@@ -69,9 +70,29 @@ pq_mhq_anb <- classif_mhq_anb %>%
 
 path_vbi <- file.path(fileman_up("n2khab-mhq-data"), "processed/dwh_vbi")
 
+standdescription_vbi <- read_vc(root = path_vbi, file = "stand_description")
+date_vbi <- standdescription_vbi %>%
+  distinct(plot_id, vbi_cycle, date = date_dendro)
+missing_values_vbi <- read_vc(root = path_vbi, file = "missing_values")
+
+#meest recent geobserveerde habitattype per meetpunt
 classif_vbi <- read_vc(root = path_vbi, file = "type_observed")
+  
+#van de meetpunten uit de 3de cyclus nemen we ook de meetpunten van de 2de cyclus en gaan we uit van hetzelfde habitattype
+classif_vbi2_add <- classif_vbi %>%
+  filter(vbi_cycle == 3) %>%
+  mutate(vbi_cycle = 2) %>%
+  semi_join(standdescription_vbi, by = c("plot_id", "vbi_cycle"))
 
 classif_vbi <- classif_vbi %>%
+  bind_rows(classif_vbi2_add) %>%
+  mutate(type_observed = ifelse(type_observed == "9120_qb", "9120", type_observed)) %>%
+  group_by(plot_id, vbi_cycle, type_observed, source, note_manual_check) %>%
+  summarise(phab = sum(phab)) %>%
+  ungroup() %>%
+  left_join(date_vbi, by = c("plot_id", "vbi_cycle")) %>%
+  left_join(missing_values_vbi, by = c("plot_id", "vbi_cycle")) %>%
+  filter(!herb_missing_value & !dendro_missing_value) %>%
   mutate(survey = "vbi",
          ID = str_c(plot_id, "_", vbi_cycle),
          record_id_square = ID,
@@ -122,7 +143,7 @@ classif_mhq_inbo <- classif_mhq_inbo %>%
 pq_mhq_anb <- pq_mhq_anb %>%
   mutate(ID = str_c(plot_id, "_", date_assessment),
          survey = "anb") %>%
-  select(survey, date = date_assessment, ID) %>%
+  select(survey, date = date_assessment, ID, plot_id) %>%
   mutate(record_id_square = ID,
          record_id_circle = ID)
   

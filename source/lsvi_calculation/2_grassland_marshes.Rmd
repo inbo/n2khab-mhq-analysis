@@ -17,6 +17,10 @@ schemes_gr_bm %>%
 ```
 
 ```{r}
+
+check_lsvi_belang <- geefInvoervereisten(Versie = "Versie 3") %>%
+  filter(is.na(Belang))
+
 overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
                             Habitattype = as.character(schemes_gr_bm$type),
                             Versie = "Versie 3") 
