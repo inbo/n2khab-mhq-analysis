@@ -385,13 +385,11 @@ check_area_clusters %>%
     + 91E0_vn
     + 91E0_vo
 
-+ Wat met 91E0 zonder subtype?
-
 ```{r}
 calc_msa <- polygonen_msa_table %>%
   select(cluster_id, polygon_id, object_id, msa_type, area_ha) %>%
   left_join(habmap_msa_types, by = "polygon_id", relationship = "many-to-many") %>%
-  mutate(type_join = ifelse(type %in% c("91E0_va", "91E0_vc"), "91E0_va+91E0_vc",
+  mutate(type_join = ifelse(type %in% c("91E0_va", "91E0_vc"), "91E0_va_91E0_vc",
                           ifelse(type %in% c("9130", "9130_end", "9130_fm"), "9130", 
                                 ifelse(type %in% c("9120", "9120_qb"), "9120", as.character(type))))) %>% 
   group_by(cluster_id, msa_type, type_join) %>%
@@ -404,12 +402,11 @@ msa_91xx_wide <- calc_msa %>%
   filter(type_join != "91E0") %>%
   mutate(area_ha = round(area_ha, 4)) %>%
   arrange(type_join) %>%
-  mutate(type_join = str_c(type_join, "_ha")) %>%
   pivot_wider(names_from = type_join, values_from = area_ha, values_fill = round(0, 4), names_prefix = "msa") %>%
   arrange(cluster_id) %>%
-  mutate("msa9150+9130_ha" = msa9150_ha + msa9130_ha) %>%
-  select(-msa9150_ha) %>%
-  select(cluster_id, msa_type, msa9110_ha, msa9120_ha, msa9130_ha, `msa9150+9130_ha`, everything())
+  mutate("msa9150_9130" = msa9150 + msa9130) %>%
+  select(-msa9150) %>%
+  select(cluster_id, msa_type, msa9110, msa9120, msa9130, `msa9150_9130`, everything())
 
 msa_2180_wide <- calc_msa %>%
   filter(msa_type == "msa2180") %>%
@@ -417,21 +414,30 @@ msa_2180_wide <- calc_msa %>%
   mutate(area_ha = round(area_ha, 4)) %>%
   arrange(type_join) %>%
   pivot_wider(names_from = type_join, values_from = area_ha, values_fill = round(0, 4)) %>%
-  rename(msa2180_ha = `2180`)
+  rename(msa2180 = `2180`)
 
 clusters_msa91xx_final <- clusters_msa91xx %>%
+  st_buffer(dist = 0) %>%
   mutate(area_ha_cluster = round(drop_units(st_area(geom)) / 10000, 4)) %>%
   filter((area_ha_cluster * 10000) >= min_area_cluster$area_m2_cluster) %>%
   left_join(msa_91xx_wide, by = "cluster_id")
 
 clusters_msa2180_final <- clusters_msa2180 %>%
+  st_buffer(dist = 0) %>%
   mutate(area_ha_cluster = round(drop_units(st_area(geom)) / 10000, 4)) %>%
   left_join(msa_2180_wide, by = "cluster_id")
 ```
 
+Controle van de geometrie van de objecten: is de geometrie van alle objecten OK?
+
+```{r}
+all(st_is_valid(clusters_msa2180_final$geom),
+    st_is_valid(clusters_msa2180_final$geom))
+```
+
 ## Resultaat wegschrijven
 
-We schrijven het resultaat weg als een geopackage 'msa_v2013' met twee lagen:
+We schrijven het resultaat weg als een geopackage 'msa_v2023' met twee lagen:
 
 + msa_91xx
 + msa_2180
@@ -458,7 +464,7 @@ hashes <-
            md5 = map(filepath, function(x) {
                            file(x) %>% md5 %>% str_c(collapse = '')
                          }) %>% as.character,
-           md5_ref = c("be0f77d01d5895623a06801b5a9ce64f"),
+           md5_ref = c("a6aa0ac0ca4f583782cf1237ba8b5d82"),
            match = md5 == md5_ref) %>%
     select(filename,
            md5,
