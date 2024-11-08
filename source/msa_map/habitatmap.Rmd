@@ -47,14 +47,17 @@ De habitattypes die van belang zijn voor de berekening van MSA zijn 2160, 2180 e
 + Selectie van polygonen uit habitatkaart die volledig of deels 2160, 2180 of 91xx bevatten
   + exclusief onzekere habitat (bv. '9120,gh'), maar wel bij twijfel tussen twee habitattypen (bv. '91E0, 9190')
 + Ruimtelijke objecten van het type MULTIPOLYGON (meerdere polygonen die niet steeds aangrenzend zijn), die zetten we om naar type POLYGON zodat we één polygoon hebben per ruimtelijk object. 
-+ Knip barrieres uit habitatpolygonen
-+ Als er MULTIPOLYGON objecten worden gevormd zetten we die om naar POLYGON objecten
 + Bereken oppervakte per polygoon
-+ Voeg aangrijnzende polygonen samen om clusters te vormen
++ Neem een buffer van 7,5 meter rond de polygonen (polygonen die gescheiden zijn door bv. een smal pad willen we in één cluster samenvoegen) 
++ Voeg aangrijnzende of overlappende polygonen (inclusief buffer) samen om clusters te vormen
   + Voor 2180 selecteren we hiervoor de polygonen met 2160, 2180 en 91E0
   + voor 91xx selecteren we de polygonen met 91xx
-+ Bepaal per polygoon tot welke cluster die behoort
++ Knip barrieres uit clusters
++ Als er MULTIPOLYGON objecten worden gevormd zetten we die om naar POLYGON objecten
++ Bepaal per polygoon tot welke cluster die behoort, indien een polygoon tot meerdere clusters behoort dan kennen we de polygoon toe aan de clusters met de grootste overlap (via 'st_join(largest = TRUE)')
++ clusters die niet overlappen met een polygoon (via 'st_join(largest = TRUE)') worden verwijderd; het gaat in de regel om artefacten als gevolg van de buffering
 + Voor de 2180-clusters selecteren we enkel de clusters die 2180 bevatten (dus niet clusters die enkel 91E0 bevatten)
++ clusters met een oppervlakte < 50 m² worden verwijderd
 
 ```{r}
 
@@ -64,7 +67,13 @@ habmap_msa_types <- habmap_terr$habitatmap_terr_types %>%
 
 habmap_msa_polygons <- habmap_terr$habitatmap_terr_polygons %>%
   filter(polygon_id %in% habmap_msa_types$polygon_id)  %>%
-  st_cast("POLYGON")
+  st_cast("POLYGON") %>%
+  group_by(polygon_id) %>%
+  mutate(object_id = str_c(polygon_id, "_", 1:n()),
+         objects_per_polygon = n()) %>%
+  ungroup() %>%
+  select(object_id, polygon_id, description_orig, description, objects_per_polygon) %>%
+  mutate(area_ha = drop_units(st_area(geom)) / 10000)
 
 check_unique <- habmap_msa_polygons %>%
   st_drop_geometry() %>%
@@ -90,32 +99,7 @@ check_unique <- habmap_msa_polygons_barriere %>%
   filter(n() > 1)
 
 ```
-
-
 ```{r}
-# st_cast from MULTIPOLYGON to POLYGON does not work when we have a mixture of POLYGONS AND MULTIPOLYGONS
-# so we first convert all objects to MULTIPOLYGON and then convert to POLYGON
-habmap_msa_polygons_diff <- st_difference(habmap_msa_polygons_barriere, barriere_forest_union) %>%
-  st_cast("MULTIPOLYGON") %>%
-  st_cast("POLYGON")
-
-polygonen_msa <- habmap_msa_polygons %>%
-  filter(!polygon_id %in% habmap_msa_polygons_barriere$polygon_id) %>%
-  mutate(object_id = polygon_id,
-         barriere = FALSE) %>%
-  bind_rows(habmap_msa_polygons_diff) %>% 
-  group_by(polygon_id) %>%
-  mutate(object_id = str_c(polygon_id, "_", 1:n()),
-         objects_per_polygon = n()) %>%
-  ungroup() %>%
-  select(object_id, polygon_id, description_orig, description, barriere, objects_per_polygon) %>%
-  mutate(area_ha = drop_units(st_area(geom)) / 10000)
-
-check_unique <- polygonen_msa %>%
-  st_drop_geometry() %>%
-  group_by(object_id) %>%
-  filter(n() > 1)
-
 habmap_msa_2180 <- habmap_msa_types %>%
   filter(str_sub(type, 1, 4) %in% c("2160", "2180", "91E0"))
 
@@ -124,44 +108,96 @@ habmap_2180 <- habmap_msa_2180 %>%
   
 habmap_msa_91xx <- habmap_msa_types %>%
   filter(str_sub(type, 1, 2) %in% c("91"))
+```
 
-clusters_msa2180 <- polygonen_msa %>%
+
+```{r}
+
+clusters_init_msa2180 <- habmap_msa_polygons %>%
   filter(polygon_id %in% habmap_msa_2180$polygon_id) %>%
+  st_buffer(dist = 7.5) %>%
   st_union() %>%
   st_cast("POLYGON") %>%
   st_as_sf() %>%
   rename(geom = x)
 
-clusters_msa2180 <- clusters_msa2180 %>%
-  mutate(cluster_id = str_c("msa2180_", 1:nrow(clusters_msa2180)))
-  
-polygonen_msa2180 <- polygonen_msa %>%
+clusters_init_msa2180 <- clusters_init_msa2180 %>%
+  mutate(cluster_init_id = str_c("msa2180_", 1:nrow(clusters_init_msa2180)))
+
+clusters_msa2180_barriere <- clusters_init_msa2180 %>%
+  st_join(select(barriere_forest, barriere), largest = TRUE) %>%
+  filter(!is.na(barriere))
+
+clusters_msa2180_diff <- st_difference(clusters_msa2180_barriere, barriere_forest_union) %>%
+  st_cast("MULTIPOLYGON") %>%
+  st_cast("POLYGON")
+
+clusters_msa2180 <- clusters_init_msa2180 %>%
+  filter(!cluster_init_id %in% clusters_msa2180_diff$cluster_init_id) %>%
+  mutate(barriere = FALSE) %>%
+  bind_rows(clusters_msa2180_diff) %>%
+  group_by(cluster_init_id) %>%
+  mutate(n = n(),
+         cluster_id = ifelse(n > 1, str_c(cluster_init_id, "_", 1:n), cluster_init_id)) %>%
+  ungroup() %>%
+  select(-barriere.1)
+
+polygonen_msa2180 <- habmap_msa_polygons %>%
   filter(polygon_id %in% habmap_2180$polygon_id) %>%
   st_join(clusters_msa2180, largest = TRUE)
 
 # we selecteren enkel de clusters die 2180 bevatten
 clusters_msa2180 <- clusters_msa2180 %>%
-  filter(cluster_id %in% polygonen_msa2180$cluster_id)
-
+  filter(cluster_id %in% polygonen_msa2180$cluster_id)  %>%
+  group_by(cluster_init_id) %>%
+  mutate(n = n()) %>%
+  ungroup()
+  
 #alle polygonen in de clusters met 2180
-polygonen_msa2180_all <- polygonen_msa %>%
+polygonen_msa2180_all <- habmap_msa_polygons %>%
   filter(polygon_id %in% habmap_msa_2180$polygon_id) %>%
   st_join(clusters_msa2180, largest = TRUE)  %>%
   filter(cluster_id %in% polygonen_msa2180$cluster_id)
   
-clusters_msa91xx <- polygonen_msa %>%
+clusters_init_msa91xx <- habmap_msa_polygons %>%
   filter(polygon_id %in% habmap_msa_91xx$polygon_id) %>%
+  st_buffer(dist = 7.5) %>%
   st_union() %>%
   st_cast("POLYGON") %>%
   st_as_sf() %>%
   rename(geom = x)
 
-clusters_msa91xx <- clusters_msa91xx %>%
-  mutate(cluster_id = str_c("91xx_", 1:nrow(clusters_msa91xx)))
-  
-polygonen_msa91xx <- polygonen_msa %>%
+clusters_init_msa91xx <- clusters_init_msa91xx %>%
+  mutate(cluster_init_id = str_c("msa91xx_", 1:nrow(clusters_init_msa91xx)))
+
+clusters_msa91xx_barriere <- clusters_init_msa91xx %>%
+  st_join(select(barriere_forest, barriere), largest = TRUE) %>%
+  filter(!is.na(barriere))
+
+clusters_msa91xx_diff <- st_difference(clusters_msa91xx_barriere, barriere_forest_union) %>%
+  st_cast("MULTIPOLYGON") %>%
+  st_cast("POLYGON")
+
+clusters_msa91xx <- clusters_init_msa91xx %>%
+  filter(!cluster_init_id %in% clusters_msa91xx_diff$cluster_init_id) %>%
+  mutate(barriere = FALSE) %>%
+  bind_rows(clusters_msa91xx_diff) %>%
+  group_by(cluster_init_id) %>%
+  mutate(n = n(),
+         cluster_id = ifelse(n > 1, str_c(cluster_init_id, "_", 1:n), cluster_init_id)) %>%
+  ungroup() %>%
+  select(-barriere.1)
+
+polygonen_msa91xx <- habmap_msa_polygons %>%
   filter(polygon_id %in% habmap_msa_91xx$polygon_id) %>%
   st_join(clusters_msa91xx, largest = TRUE)
+
+# we selecteren enkel de clusters met overlap met het grootste deel van een 91xx polygoon
+clusters_msa91xx <- clusters_msa91xx %>%
+  filter(cluster_id %in% polygonen_msa91xx$cluster_id) %>%
+  group_by(cluster_init_id) %>%
+  mutate(n = n()) %>%
+  ungroup()
 
 polygonen_msa_table <- polygonen_msa2180_all %>%
   st_drop_geometry() %>%
@@ -177,26 +213,23 @@ check_unique_object <- polygonen_msa_table %>%
 
 check_area_clusters <- polygonen_msa_table %>%
   st_drop_geometry() %>%
-  group_by(cluster_id, msa_type) %>%
+  group_by(cluster_id, msa_type, barriere) %>%
   summarise(area_m2_cluster = round(sum(area_ha) * 10000, 2),
-            n_polygons = n_distinct(polygon_id),
-            barriere = any(barriere)) %>%
+            n_polygons = n_distinct(polygon_id)) %>%
   ungroup() %>%
   mutate(area_cluster_class = ifelse(area_m2_cluster < 1000, "0 - 0.1 ha",
                                     ifelse(area_m2_cluster < 10000, "0.1 - 1 ha", "> 1 ha")))
-
 ```
 
 ### Check resultaat voor één polygoon 
 
 In onderstaande figuur zien we:
 
-+ een polygoon die door een barriere (rode polygoon) opgesplits wordt in twee polygonen (gele polygonen)
++ een gele polygoon die grotendeels door een barriere (rode polygoon) wordt gescheiden van een naburige polygonen
 + de polygonen in een straal van 350 meter (grijze polygonen)
 + de clusters die gevormd worden (blauwe polygonen)
-+ de oorspronkelijke polygonen uit de habitatkaart (zwarte rand)
 
-Merk op dat er afzonderlijke polygonen en clusters gevormd worden op de middenberm van de tweevaksbaan!
+De gele polygoon behoort to de zelfde cluster als de naburige polygoon omdat ze verbinding maakt (na buffer van 7.5 m rond de polygonen) via een klein stukje eenvaksbaan (dat niet als barrière wordt beschouwd). 
 
 ```{r}
 polygon_sel <- c("603512_v2014")
@@ -217,10 +250,6 @@ polygons_100 <- polygonen_msa91xx %>%
 polygon_select <- polygon_select %>%
   st_transform(4326)
 
-polygon_orig <- habmap_msa_polygons %>%
-  filter(polygon_id %in% c(polygon_select$polygon_id, polygons_100$polygon_id)) %>%
-  st_transform(crs = 4326)
-
 polygon_barriere <- barriere_forest %>%
   filter(polygon_id %in% c(polygon_select$polygon_id, polygons_100$polygon_id)) %>%
   st_transform(crs = 4326)
@@ -234,10 +263,9 @@ polygon_select %>%
   addTiles() %>%
   addPolygons(color = "yellow", popup = ~object_id, group = "nieuwe polygoon") %>%
   addPolygons(data = polygons_100, color = "grey", popup = ~object_id, group = "nieuwe polygonen in buffer 350m") %>%
-  addPolygons(data = polygon_orig, color = "black", opacity = 100, fill = FALSE, group = "originele polygoon", weight = 1) %>%
   addPolygons(data = polygon_barriere, color = "red", group = "barriere", weight = 1) %>%
   addPolygons(data = cluster_select, fill = FALSE,  label = ~cluster_id, group = "clusters") %>%
-   addLayersControl(overlayGroups = c("nieuwe polygoon", "originele polygoon", "nieuwe polygonen in buffer 350m", "barriere", "clusters"),
+   addLayersControl(overlayGroups = c("nieuwe polygoon","nieuwe polygonen in buffer 350m", "barriere", "clusters"),
                     options = layersControlOptions(collapsed = FALSE)
   )
 ```
@@ -265,30 +293,108 @@ cluster_select <- clusters_msa91xx %>%
 polygon_select %>%
   leaflet() %>%
   addTiles() %>%
-  addPolygons(color = "yellow", popup = ~object_id, group = "nieuwe polygoon") %>%
-  addPolygons(data = polygon_orig, color = "black", opacity = 100, fill = FALSE, group = "originele polygoon", weight = 1) %>%
+  addPolygons(color = "yellow", popup = ~object_id, group = "habmap polygonen") %>%
+  addPolygons(data = cluster_select, fill = FALSE,  label = ~cluster_id, group = "cluster") %>%
+   addLayersControl(overlayGroups = c("habmap polygonen", "cluster"),
+                    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+
+### Check resultaat voor opgesplitste cluster
+
+In onderstaande kaart wordt een cluster opgesplitst op basis van een spoorweglijn.
+De habitatkaart polygonen aan beide kanten van de spoorweg raken elkaar niet, maar de polygonen werden in eerste instantie samengevoegd via de buffer van 7.5 m rond de polygonen. 
+Door de barriere uit te knippen, worden de clusters (zoals gewenst) opgesplitst.
+
+```{r}
+cluster_id_sel <- str_c("msa91xx_5767_", 1:9)
+
+polygon_select <- polygonen_msa91xx %>%
+  filter(cluster_id %in% cluster_id_sel) %>%
+  st_transform(4326)
+
+cluster_select <- clusters_msa91xx %>%
+  filter(cluster_id %in% cluster_id_sel) %>%
+  st_transform(crs = 4326)
+
+polygon_barriere <- barriere_forest %>%
+  filter(polygon_id %in% c(polygon_select$polygon_id)) %>%
+  st_transform(crs = 4326)
+
+polygon_select %>%
+  leaflet() %>%
+  addTiles() %>%
+  addPolygons(color = "yellow", popup = ~object_id, group = "habmap polygonen") %>%
   addPolygons(data = cluster_select, fill = FALSE,  label = ~cluster_id, group = "clusters") %>%
-   addLayersControl(overlayGroups = c("nieuwe polygoon", "originele polygoon", "barriere", "clusters"),
+  addPolygons(data = polygon_barriere, color = "red", group = "barriere", weight = 1) %>%
+   addLayersControl(overlayGroups = c("habmap polygonen", "barriere", "clusters"),
                     options = layersControlOptions(collapsed = FALSE)
   )
 ```
 
 
-### Hoeveel polygonen worden geknipt door barrières?
-
-Onderstaande tabel toont aan dat slechts een kleine minderheid van de polygonen een intersectie hebben met een barrière.
+### Check polygonen die overlappen met meerdere clusters
 
 ```{r}
-polygonen_msa %>%
+polygonen_msa91xx_double <- habmap_msa_polygons %>%
+  filter(polygon_id %in% habmap_msa_91xx$polygon_id) %>%
+  st_join(clusters_msa91xx) %>%
   st_drop_geometry() %>%
-  mutate(type_intersectie = ifelse(!barriere, "geen intersectie",
-                                   ifelse(objects_per_polygon <= 1, "intersectie - polygoon niet opgesplitst", "intersectie - polygoon opgesplitst"))) %>%
-  left_join(habmap_msa_types, by = "polygon_id", relationship = "many-to-many") %>%
-  mutate(main_type = str_sub(type, 1,4)) %>%
-  group_by(main_type, type_intersectie) %>%
-  summarise(n_polygonen = n()) %>%
+  group_by(polygon_id) %>%
+  filter(n_distinct(cluster_id) > 1) %>%
+  ungroup()
+
+```
+
+Slechts 2 polygonen overlappen met meerdere clusters.
+
+```{r}
+polygonen_msa91xx_double %>%
+  select(polygon_id, cluster_id, description, area_ha, barriere) %>%
+  datatable(rownames = FALSE)
+```
+
+```{r}
+cluster_id_sel <- polygonen_msa91xx_double$cluster_id
+
+polygon_select <- polygonen_msa91xx %>%
+  filter(polygon_id %in% polygonen_msa91xx_double$polygon_id) %>%
+  st_transform(4326)
+
+cluster_select <- clusters_msa91xx %>%
+  filter(cluster_id %in% cluster_id_sel) %>%
+  st_transform(crs = 4326)
+
+polygon_barriere <- barriere_forest %>%
+  filter(polygon_id %in% c(polygon_select$polygon_id)) %>%
+  st_transform(crs = 4326)
+
+polygon_select %>%
+  leaflet() %>%
+  addTiles() %>%
+  addPolygons(color = "yellow", popup = ~object_id, group = "habmap polygonen") %>%
+  addPolygons(data = cluster_select, fill = FALSE,  label = ~cluster_id, group = "clusters") %>%
+  addPolygons(data = polygon_barriere, color = "red", group = "barriere", weight = 1, fillOpacity = 0.6) %>%
+   addLayersControl(overlayGroups = c("habmap polygonen", "barriere", "clusters"),
+                    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+
+### Hoeveel cluster worden geknipt door barrières?
+
+```{r}
+clusters_msa91xx %>%
+  st_drop_geometry() %>%
+  mutate(cluster = "msa91xx") %>%
+  bind_rows(clusters_msa2180 %>%
+              st_drop_geometry() %>%
+              mutate(cluster = "2180")) %>%
+  mutate(type_intersectie = ifelse(!barriere | is.na(barriere), "geen intersectie",
+                                   ifelse(n <= 1, "intersectie - cluster niet opgesplitst", "intersectie - cluster opgesplitst"))) %>%
+  group_by(cluster, type_intersectie) %>%
+  summarise(n_clusters = n()) %>%
   ungroup() %>%
-  pivot_wider(names_from = type_intersectie, values_from = n_polygonen, values_fill = 0) %>%
+  pivot_wider(names_from = type_intersectie, values_from = n_clusters, values_fill = 0) %>%
   datatable(rownames = FALSE)
     
 ```
@@ -307,38 +413,41 @@ check_area_clusters %>%
 
 ```{r}
 min_area_cluster <- check_area_clusters %>%
-  filter(!barriere) %>%
-  filter(area_m2_cluster == min(area_m2_cluster)) %>%
+  filter(area_m2_cluster <= 50) %>%
   left_join(polygonen_msa_table, by = c("cluster_id", "barriere", "msa_type"))
 
-min_area_polygonen <- polygonen_msa %>%
-  st_drop_geometry() %>%
-  filter(!barriere) %>%
-  filter(area_ha == min(area_ha)) %>%
-  mutate(area_m2 = round(area_ha * 10000, 3))
 ```
 
-Onderstaande kaart toont de kleinste cluster (blauwe polygoon) die geen barrières bevat (dus enkel originele polygonen uit de Habitatkaart) en de omliggende polygonen (grijs).
+Onderstaande tabel toont de clusters met een oppervlakte < 50 m².
+Ze bestaan allemaal uit slechts één habitat polygoon.
+Deze clusters worden verwijderd omdat het om artefacten gaat.
 
-De cluster bestaat uit de volgende polygoon.
 
 ```{r}
 min_area_cluster %>%
-  select(polygon_id, description_orig, area_m2_cluster) %>%
+  select(cluster_id, n_polygons, polygon_id, description_orig, area_m2_cluster) %>%
   datatable(rownames = FALSE)
 ```
+
+Onderstaande kaart toont 3 clusters met oppervlakte < 50 m² (gele polygonen).
+Je ziet ook de omliggende clusters (blauw) en habitatkaart polygonen (zwart). 
 
 
 ```{r}
 
 cluster_select <- clusters_msa91xx %>%
-  filter(cluster_id %in% min_area_cluster$cluster_id)
+  filter(cluster_id %in% c("msa91xx_11", "msa91xx_13", "msa91xx_14")) 
 
 cluster_select_buffer <- cluster_select %>%
-  st_buffer(50) %>%
+  st_buffer(250) %>%
   select(cluster_id_buffer = cluster_id)
 
-polygons_50 <- polygonen_msa91xx %>%
+polygons_250 <- polygonen_msa91xx %>%
+  st_join(cluster_select_buffer) %>%
+  filter(!is.na(cluster_id_buffer)) %>%
+  st_transform(4326)
+
+clusters_250 <- clusters_msa91xx %>%
   st_join(cluster_select_buffer) %>%
   filter(!is.na(cluster_id_buffer)) %>%
   filter(!cluster_id %in% cluster_select$cluster_id) %>%
@@ -348,21 +457,22 @@ polygons_50 <- polygonen_msa91xx %>%
   st_transform(crs = 4326) %>%
   leaflet() %>%
   addTiles() %>%
-  addPolygons() %>%
-   addPolygons(data = polygons_50, color = "grey")
+  addPolygons(color = "yellow", label = ~cluster_id) %>%
+   addPolygons(data = polygons_250, color = "black") %>%
+   addPolygons(data = clusters_250, label = ~cluster_id)
   
 ```
 
-Clusters met een kleinere oppervlakte als gevolg van een intersectie met een barrière nemen we niet mee.
-Het gaat om volgende objecten:
-
 ```{r}
-check_area_clusters %>%
-  filter(area_m2_cluster < min_area_cluster$area_m2_cluster) %>%
-  left_join(polygonen_msa_table, by = c("cluster_id", "barriere", "msa_type")) %>%
-  mutate(area_m2 = round(area_ha * 10000, 3)) %>%
-  select(cluster_id, polygon_id, object_id, barriere, description_orig, area_m2, objects_per_polygon) %>%
-  datatable(rownames = FALSE)
+polygonen_msa_table <- polygonen_msa_table %>%
+  filter(!cluster_id %in% min_area_cluster$cluster_id)
+
+clusters_msa91xx <- clusters_msa91xx %>%
+  filter(!cluster_id %in% min_area_cluster$cluster_id)
+
+clusters_msa2180 <- clusters_msa2180 %>%
+  filter(!cluster_id %in% min_area_cluster$cluster_id)
+  
 ```
 
 
@@ -387,22 +497,30 @@ check_area_clusters %>%
 
 ```{r}
 calc_msa <- polygonen_msa_table %>%
-  select(cluster_id, polygon_id, object_id, msa_type, area_ha) %>%
+  select(cluster_id, polygon_id, msa_type, area_ha) %>%
   left_join(habmap_msa_types, by = "polygon_id", relationship = "many-to-many") %>%
-  mutate(type_join = ifelse(type %in% c("91E0_va", "91E0_vc"), "91E0_va_91E0_vc",
+  mutate(habitattype = ifelse(type %in% c("91E0_va", "91E0_vc"), "91E0_va_91E0_vc",
                           ifelse(type %in% c("9130", "9130_end", "9130_fm"), "9130", 
                                 ifelse(type %in% c("9120", "9120_qb"), "9120", as.character(type))))) %>% 
-  group_by(cluster_id, msa_type, type_join) %>%
+  group_by(cluster_id, msa_type, habitattype) %>%
   summarise(area_ha = sum(phab/100 * area_ha)) %>%
   ungroup() %>%
-  filter((msa_type == "msa91xx") | (msa_type == "msa2180" & type_join == "2180"))
+  filter((msa_type == "msa91xx") | (msa_type == "msa2180" & habitattype == "2180"))
+
+clusters_table <- polygonen_msa_table %>%
+  group_by(cluster_id) %>%
+  mutate(n_polygons = n(),
+         cluster_area_ha = round(sum(area_ha), 4)) %>%
+  ungroup() %>%
+  select(msa_type, cluster_id, cluster_area_ha, n_polygons, polygon_id, area_ha_polygon = area_ha) %>%
+  arrange(cluster_id, polygon_id)
   
 msa_91xx_wide <- calc_msa %>%
   filter(msa_type == "msa91xx") %>%
-  filter(type_join != "91E0") %>%
+  filter(habitattype != "91E0") %>%
   mutate(area_ha = round(area_ha, 4)) %>%
-  arrange(type_join) %>%
-  pivot_wider(names_from = type_join, values_from = area_ha, values_fill = round(0, 4), names_prefix = "msa") %>%
+  arrange(habitattype) %>%
+  pivot_wider(names_from = habitattype, values_from = area_ha, values_fill = round(0, 4), names_prefix = "msa") %>%
   arrange(cluster_id) %>%
   mutate("msa9150_9130" = msa9150 + msa9130) %>%
   select(-msa9150) %>%
@@ -410,45 +528,89 @@ msa_91xx_wide <- calc_msa %>%
 
 msa_2180_wide <- calc_msa %>%
   filter(msa_type == "msa2180") %>%
-  filter(type_join == "2180") %>%
+  filter(habitattype == "2180") %>%
   mutate(area_ha = round(area_ha, 4)) %>%
-  arrange(type_join) %>%
-  pivot_wider(names_from = type_join, values_from = area_ha, values_fill = round(0, 4)) %>%
+  arrange(habitattype) %>%
+  pivot_wider(names_from = habitattype, values_from = area_ha, values_fill = round(0, 4)) %>%
   rename(msa2180 = `2180`)
 
 clusters_msa91xx_final <- clusters_msa91xx %>%
   st_buffer(dist = 0) %>%
   mutate(area_ha_cluster = round(drop_units(st_area(geom)) / 10000, 4)) %>%
-  filter((area_ha_cluster * 10000) >= min_area_cluster$area_m2_cluster) %>%
-  left_join(msa_91xx_wide, by = "cluster_id")
+  left_join(msa_91xx_wide, by = "cluster_id") %>%
+  select(cluster_id, area_ha_cluster, starts_with("msa"))
+
+clusters_habmap_msa91xx_final <- polygonen_msa91xx %>%
+  group_by(cluster_id) %>%
+  summarise(n_polygons = n()) %>%
+  ungroup() %>%
+  st_buffer(dist = 0) %>%
+  mutate(area_ha_cluster = round(drop_units(st_area(geom)) / 10000, 4)) %>%
+  inner_join(msa_91xx_wide, by = "cluster_id") %>%
+  select(cluster_id, area_ha_cluster, starts_with("msa"))
 
 clusters_msa2180_final <- clusters_msa2180 %>%
   st_buffer(dist = 0) %>%
   mutate(area_ha_cluster = round(drop_units(st_area(geom)) / 10000, 4)) %>%
-  left_join(msa_2180_wide, by = "cluster_id")
-```
+  left_join(msa_2180_wide, by = "cluster_id") %>%
+  select(cluster_id, area_ha_cluster, msa2180)
 
-Controle van de geometrie van de objecten: is de geometrie van alle objecten OK?
-
-```{r}
-all(st_is_valid(clusters_msa2180_final$geom),
-    st_is_valid(clusters_msa2180_final$geom))
+clusters_habmap_msa2180_final <- polygonen_msa2180_all %>%
+  group_by(cluster_id) %>%
+  summarise(n_polygons = n()) %>%
+  ungroup() %>%
+  st_buffer(dist = 0) %>%
+  mutate(area_ha_cluster = round(drop_units(st_area(geom)) / 10000, 4)) %>%
+  inner_join(msa_2180_wide, by = "cluster_id") %>%
+  select(cluster_id, area_ha_cluster, msa2180)
 ```
 
 ## Resultaat wegschrijven
 
-We schrijven het resultaat weg als een geopackage 'msa_v2023' met twee lagen:
+We schrijven de clusters met de msa per habitattype weg als een geopackage 'clusters_msa_v2023' met twee lagen:
 
 + msa_91xx
 + msa_2180
 
 ```{r}
 clusters_msa91xx_final %>%
-  st_write(dsn = "output/msa_v2023.gpkg", layer = "msa_91xx", delete_dsn = TRUE, driver = "GPKG")
+  st_write(dsn = "output/clusters_msa_v2023.gpkg", layer = "msa_91xx", delete_dsn = TRUE, driver = "GPKG")
 
 clusters_msa2180_final %>%
-  st_write(dsn = "output/msa_v2023.gpkg", layer = "msa_2180", append = TRUE, driver = "GPKG")
+  st_write(dsn = "output/clusters_msa_v2023.gpkg", layer = "msa_2180", append = TRUE, driver = "GPKG")
 ```
+Als alteratief kan ook gebruik gemaakt worden van clusters bestaande uit de originele polygonen van de habitatkaart.
+Alle polygonen behorende tot eenzelfde cluster worden daarin samengevoegd in een MULTIPOLYGON.
+we schrijven dit resultaat weg als een geopackage 'clusters_habmap_msa_v2023'.
+
+```{r}
+clusters_habmap_msa91xx_final %>%
+  st_cast("MULTIPOLYGON") %>%
+  st_write(dsn = "output/clusters_habmap_msa_v2023.gpkg", layer = "msa_91xx", delete_dsn = TRUE, driver = "GPKG")
+
+clusters_habmap_msa2180_final %>%
+  st_cast("MULTIPOLYGON") %>%
+  st_write(dsn = "output/clusters_habmap_msa_v2023.gpkg", layer = "msa_2180", append = TRUE, driver = "GPKG")
+```
+
+We schrijven het resultaat ook weg als tabellen:
+
++ 'msa_v2023': msa per habitattype en per cluster
++ 'msa_clusters_v2023': geeft voor elke cluster aan uit welke habitatkaart polygonen deze bestaat
+
+```{r}
+calc_msa %>%
+  rename(msa_area_ha = area_ha) %>%
+  mutate(msa_area_ha = round(msa_area_ha, 4)) %>%
+  write_csv2("output/msa_v2023.csv")
+
+clusters_table %>%
+  select(cluster_id, polygon_id) %>%
+  write_csv2("output/clusters_msa_v2023.csv")
+  
+```
+
+
 De reproduceerbaarheid van het resultaat kan gecontroleerd worden via de md5-hash.
 
 ```{r}
@@ -464,7 +626,10 @@ hashes <-
            md5 = map(filepath, function(x) {
                            file(x) %>% md5 %>% str_c(collapse = '')
                          }) %>% as.character,
-           md5_ref = c("a6aa0ac0ca4f583782cf1237ba8b5d82"),
+           md5_ref = c("5571f72531ee53ec81a422cb5e5fb53e",
+                       "4573dc648b41c3e838f989274be5d635",
+                       "edfbddf606513e2e088755c351daf555",
+                       "5c6d68ef80f1ad3174c4841b92d0f283"),
            match = md5 == md5_ref) %>%
     select(filename,
            md5,
