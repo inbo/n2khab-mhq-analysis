@@ -108,8 +108,9 @@ pq_mhq_inbo <- header_mhq_inbo %>%
   mutate(plot_type = ifelse(area %in% c(9, 256), "square",
                             ifelse(area > 1000, "circle", NA)),
          date = as.Date(vague_date_begin)) %>%
-  left_join(site_qualifiers_moneos, by = c("survey", "record_id")) %>%
-  select(survey, date, record_id, user_reference, plot_type, plot_id)
+  left_join(site_qualifiers_moneos, by = c("survey", "record_id"))  %>%
+  mutate(link_mhq = ifelse(!is.na(plot_id), plot_id, user_reference)) %>%
+  select(survey, date, record_id, plot_type, link_mhq)
 
 pq_moneos <- header_mhq_inbo %>%
   filter(survey %in% c("Schelde-estuarium")) %>%
@@ -118,7 +119,7 @@ pq_moneos <- header_mhq_inbo %>%
   semi_join(structure_1330_da, by = "plot_id") %>% #dit bestand bevat alle plots met 1330_da
   mutate(plot_type = "square",
          date = as.Date(vague_date_begin)) %>%
-  select(survey, date, record_id, user_reference, plot_type, plot_id) 
+  select(survey, date, record_id, plot_type, link_mhq = plot_id) 
 
 pq_mhq_inbo <- pq_mhq_inbo %>%
   bind_rows(pq_moneos)
@@ -126,7 +127,7 @@ pq_mhq_inbo <- pq_mhq_inbo %>%
 pq_mhq_inbo_wide <- pq_mhq_inbo %>%
   filter(!is.na(plot_type)) %>%
   pivot_wider(names_from = "plot_type", values_from = "record_id", names_prefix = "record_id_") %>%
-  mutate(ID = ifelse(!is.na(plot_id), str_c(plot_id, "_", date), str_c(user_reference, "_", date)))
+  mutate(ID = str_c(link_mhq, "_", date))
 
 classif_1330_da <- pq_moneos %>%
   distinct(survey, record_id) %>%
@@ -143,7 +144,7 @@ classif_mhq_inbo <- classif_mhq_inbo %>%
 pq_mhq_anb <- pq_mhq_anb %>%
   mutate(ID = str_c(plot_id, "_", date_assessment),
          survey = "anb") %>%
-  select(survey, date = date_assessment, ID, plot_id) %>%
+  select(survey, date = date_assessment, ID, link_mhq = plot_id) %>%
   mutate(record_id_square = ID,
          record_id_circle = ID)
   
@@ -164,7 +165,7 @@ type_info <- types %>%
 
 classif_mhq <- classif_mhq_inbo %>%
   bind_rows(classif_mhq_anb) %>%
-  select(survey, ID, record_id_square, record_id_circle, date, type_observed, plot_type, type_cover, plot_id) %>%
+  select(survey, ID, record_id_square, record_id_circle, link_mhq, date, type_observed, plot_type, type_cover) %>%
   left_join(type_info, by = "type_observed") %>%
   mutate(is_type_target = type_observed %in% mhq_schemes$type,
          is_maintype_target = str_sub(type_observed, 1, 4) %in% str_sub(mhq_schemes$type, 1, 4),
@@ -178,7 +179,7 @@ classif_mhq <- classif_mhq_inbo %>%
   filter(is_maintype_target)
 
 data_habitat <- classif_mhq %>%
-  select(ID, survey, record_id_square, record_id_circle, date, type_observed, subtype_defined, type_cover, type_cover_all, plot_id)
+  select(ID, survey, record_id_square, record_id_circle, link_mhq, date, type_observed, subtype_defined, type_cover, type_cover_all)
   
 ```
 

@@ -10,6 +10,16 @@ path_admin <- file.path(fileman_up("n2khab-sample-admin"), "data")
 mhq_measurements <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
                              file = "mhq_terr_measurements")
 
+mhq_measurements <- mhq_measurements %>%
+  mutate(link_mhq = ifelse(!is.na(user_reference), user_reference, db_ref))
+
+check <- mhq_measurements %>%
+  group_by(link_mhq, measurement_date) %>%
+  filter(n() > 1)
+
+mhq_measurements <- mhq_measurements %>%
+  filter(point_code != "1442745_1") # NAKIJKEN
+
 mhq_assessments <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
                              file = "mhq_terr_assessments")
 
