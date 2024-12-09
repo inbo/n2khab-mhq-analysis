@@ -526,6 +526,21 @@ msa_91xx_wide <- calc_msa %>%
   select(-msa9150) %>%
   select(cluster_id, msa_type, msa9110, msa9120, msa9130, `msa9150_9130`, everything())
 
+msa_91xx_long <- msa_91xx_wide %>%
+  select(-msa_type) %>%
+  pivot_longer(cols = starts_with("msa"), names_to = "type", values_to = "msa_area_ha") %>%
+  mutate(type = str_remove(type, "msa"),
+         type = ifelse(type == "9150_9130", "9150", type),
+         type = ifelse(type == "91E0_va_91E0_vc", "91E0_vc", type))
+  
+add_91E0_va <- msa_91xx_long %>%
+  filter(type == "91E0_vc") %>%
+  mutate(type = "91E0_va")
+
+msa_91xx <- msa_91xx_long %>%
+  bind_rows(add_91E0_va) %>%
+  arrange(cluster_id, type)
+
 msa_2180_wide <- calc_msa %>%
   filter(msa_type == "msa2180") %>%
   filter(habitattype == "2180") %>%
@@ -533,6 +548,13 @@ msa_2180_wide <- calc_msa %>%
   arrange(habitattype) %>%
   pivot_wider(names_from = habitattype, values_from = area_ha, values_fill = round(0, 4)) %>%
   rename(msa2180 = `2180`)
+
+msa_2180 <- msa_2180_wide %>%
+  mutate(type = "2180") %>%
+  select(cluster_id, type, msa_area_ha = msa2180)
+
+msa_table <- msa_91xx %>%
+  bind_rows(msa_2180)
 
 clusters_msa91xx_final <- clusters_msa91xx %>%
   st_buffer(dist = 0) %>%
@@ -599,9 +621,7 @@ We schrijven het resultaat ook weg als tabellen:
 + 'msa_clusters_v2023': geeft voor elke cluster aan uit welke habitatkaart polygonen deze bestaat
 
 ```{r}
-calc_msa %>%
-  rename(msa_area_ha = area_ha) %>%
-  mutate(msa_area_ha = round(msa_area_ha, 4)) %>%
+msa_table %>%
   write_csv2("output/msa_v2023.csv")
 
 clusters_table %>%
@@ -629,7 +649,7 @@ hashes <-
            md5_ref = c("5571f72531ee53ec81a422cb5e5fb53e",
                        "4573dc648b41c3e838f989274be5d635",
                        "edfbddf606513e2e088755c351daf555",
-                       "5c6d68ef80f1ad3174c4841b92d0f283"),
+                       "4b6a54488e768923106dc50bbeb0dbdc"),
            match = md5 == md5_ref) %>%
     select(filename,
            md5,
