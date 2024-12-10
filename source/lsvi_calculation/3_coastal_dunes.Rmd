@@ -79,7 +79,7 @@ data_habitat_test <- data_habitat_cd %>%
   ungroup()
 ```
 
-## Berkening voorwaarden
+## Berekening voorwaarden
 
 Volgende voorwaarden worden rechtstreeks ingeschat op terrein:
 

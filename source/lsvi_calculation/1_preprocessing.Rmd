@@ -73,18 +73,29 @@ path_vbi <- file.path(fileman_up("n2khab-mhq-data"), "processed/dwh_vbi")
 standdescription_vbi <- read_vc(root = path_vbi, file = "stand_description")
 date_vbi <- standdescription_vbi %>%
   distinct(plot_id, vbi_cycle, date = date_dendro)
-missing_values_vbi <- read_vc(root = path_vbi, file = "missing_values")
+missing_values_vbi <- read_vc(root = path_vbi, file = "missing_values") %>%
+  filter(segment_id == 1)
 
 #meest recent geobserveerde habitattype per meetpunt
 classif_vbi <- read_vc(root = path_vbi, file = "type_observed")
+
+classif_vbi_recent <- classif_vbi %>%
+  group_by(plot_id) %>%
+  filter(vbi_cycle == max(vbi_cycle)) %>%
+  ungroup() %>%
+  filter(str_sub(type_observed, 1, 2) == "91")
+
+check <- classif_vbi_recent %>%
+  group_by(plot_id, type_observed) %>%
+  filter(n() > 1)
   
 #van de meetpunten uit de 3de cyclus nemen we ook de meetpunten van de 2de cyclus en gaan we uit van hetzelfde habitattype
-classif_vbi2_add <- classif_vbi %>%
+classif_vbi2_add <- classif_vbi_recent %>%
   filter(vbi_cycle == 3) %>%
   mutate(vbi_cycle = 2) %>%
   semi_join(standdescription_vbi, by = c("plot_id", "vbi_cycle"))
 
-classif_vbi <- classif_vbi %>%
+classif_vbi <- classif_vbi_recent %>%
   bind_rows(classif_vbi2_add) %>%
   mutate(type_observed = ifelse(type_observed == "9120_qb", "9120", type_observed)) %>%
   group_by(plot_id, vbi_cycle, type_observed, source, note_manual_check) %>%
@@ -97,6 +108,10 @@ classif_vbi <- classif_vbi %>%
          ID = str_c(plot_id, "_", vbi_cycle),
          record_id_square = ID,
          record_id_circle = ID)
+
+check <- classif_vbi %>%
+  group_by(plot_id, vbi_cycle, type_observed) %>%
+  filter(n() > 1)
 ```
 
 ## Merge ANB and INBO data

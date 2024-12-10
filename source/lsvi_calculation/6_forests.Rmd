@@ -75,6 +75,7 @@ data_voorwaarden_mhq <- get_voorwaarden_fs(data_path = path_mhq_anb,
 
 data_voorwaarden_fs <- data_voorwaarden_vbi %>%
   bind_rows(data_voorwaarden_mhq) %>%
+  unique() %>%
   filter(!(ID == "23257_2015-07-05_9130_end" & Voorwaarde == "bosconstantie" & Waarde == 20)) #dubbele waarde voor bosconstantie
 
 check <- data_voorwaarden_fs %>%
@@ -474,8 +475,7 @@ data_voorwaarden_fs <- data_voorwaarden_fs %>%
 
 ```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_fs %>%
-  filter(Habitattype %in% c("9120_qb", "9120")) %>%
-  slice_tail(n = 50)
+  filter(Habitattype %in% c("9120_qb", "9120")) 
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
@@ -583,7 +583,7 @@ input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/fores
 write_vc(data_voorwaarden_fs , file = "data_voorwaarden_fs ", root = input_path, 
          sorting = c("ID", "Voorwaarde"))
 write_vc(data_habitat_fs, file = "data_habitat_fs ", root = input_path, 
-         sorting = c("ID", "Habitattype"))
+         sorting = c("ID", "Habitattype"), strict = FALSE)
 write_vc(data_soorten_kenm_fs, file = "data_soorten_kenm_fs ", root = input_path, 
          sorting = c("ID", "Vegetatielaag", "Kenmerk", "Eenheid"), strict = FALSE)
 
@@ -657,24 +657,24 @@ correct_status_globaal <- lsvi_fs$Resultaat_indicator %>%
   group_by(ID, Criterium) %>%
   mutate(weight_crit = 1/n()) %>%
   ungroup() %>%
-  group_by(ID, Habitattype) %>%
+  group_by(Versie, Kwaliteitsniveau, ID, Habitattype) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
-            zb_ongunstig = str_c(ifelse(Status_indicator == FALSE & Belang == "zb", Indicator, ""), collapse = "; "),
             aandeel_gunstig = n_gunstig / n_ind * 100,
             status_habitatvlek =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
             index_mean_ind = round(mean(Verschilscore), 6),
             index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 6)
             ) %>%
   ungroup() %>%
-  select(ID, Habitattype, n_zb_ongunstig, zb_ongunstig, aandeel_gunstig, status_habitatvlek, index_mean_ind, index_mean_crit)
+  mutate(Aggregatiemethode = "RapportageHR") %>%
+  select(Versie, Kwaliteitsniveau, ID, Habitattype, Aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, Status = status_habitatvlek, index_mean_ind, index_mean_crit)
 
 correct_status_criterium <- lsvi_fs$Resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
   filter(Indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
   filter(Indicator != "hoeveelheid dik dood hout") %>%
-  group_by(ID, Habitattype, Criterium) %>%
+  group_by(Versie, Kwaliteitsniveau, ID, Habitattype, Criterium) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
@@ -683,30 +683,16 @@ correct_status_criterium <- lsvi_fs$Resultaat_indicator %>%
             index_mean_ind = round(mean(Verschilscore), 6)
             ) %>%
   ungroup() %>%
-  select(ID, Habitattype, Criterium, n_zb_ongunstig, aandeel_gunstig, status_criterium, index_mean_ind)
+  mutate(Aggregatiemethode = "RapportageHR") %>%
+  select(Versie, Kwaliteitsniveau, ID, Habitattype, Aggregatiemethode, Criterium, n_zb_ongunstig, aandeel_gunstig, Status_criterium = status_criterium, index_mean_ind)
 
-lsvi_fs$Resultaat_globaal <- lsvi_fs$Resultaat_globaal %>%
-  left_join(correct_status_globaal, by = c("ID", "Habitattype")) %>%
-  mutate(Status = status_habitatvlek) %>%
-  select(-status_habitatvlek)
+lsvi_fs$Resultaat_globaal <- correct_status_globaal
 
-lsvi_fs$Resultaat_criterium <- lsvi_fs$Resultaat_criterium %>%
-  left_join(correct_status_criterium, by = c("ID", "Habitattype", "Criterium")) %>%
-  mutate(Status_criterium = status_criterium) %>%
-  select(-status_criterium)
+lsvi_fs$Resultaat_criterium <- correct_status_criterium
+
+check <- lsvi_fs$Resultaat_globaal
 
 ```
-
-
-```{r}
-output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/forests/result") 
-
-lsvi_fs$Resultaat_detail$plot_type <- "vbi"
-
-lsvi_fs %>%
-  write_lsvi_results(path = output_path, suffix = "_fs")
-```
-
 
 
 ### Preview
@@ -737,8 +723,9 @@ lsvi_fs$Resultaat_indicator %>%
 ## Write result
 
 ```{r}
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/forests/result") 
 
-output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/result") 
+lsvi_fs$Resultaat_detail$plot_type <- "vbi"
 
 lsvi_fs %>%
   write_lsvi_results(path = output_path, suffix = "_fs")

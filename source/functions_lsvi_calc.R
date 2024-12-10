@@ -759,12 +759,12 @@ get_voorwaarden_fs <- function(data_path,
     select(record_id = record_id_square, Habitattype)
 
   vw_msa <- get_msa(data_path_extra_var, data_type = data_type, record_ids) %>%
-    select(record_id, type, MSA) %>%
+    select(record_id, type, msa_area_ha) %>%
     left_join(data_habitat_type, by = "record_id", relationship = "many-to-many") %>%
     mutate(type_compare = ifelse(str_sub(Habitattype, 1, 4) == "91E0", Habitattype, str_sub(Habitattype, 1, 4))) %>% #enkel voor 91E0 is msa op subtypeniveau bepaald
     filter(type == type_compare) %>%
     mutate(Voorwaarde = "MSA") %>%
-    select(record_id, Voorwaarde, Waarde = MSA, Habitattype) %>%
+    select(record_id, Voorwaarde, Waarde = msa_area_ha, Habitattype) %>%
     mutate(ID = str_c(record_id, "_", Habitattype))
 
   voorwaarden <- vw_dead_wood %>%
@@ -1685,9 +1685,7 @@ write_lsvi_results <- function(lsvi_object, path, suffix = "") {
 
   lsvi_criterium <- lsvi_object$Resultaat_criterium %>%
     select(-Versie, -Kwaliteitsniveau) %>%
-    rename(type_analysis = Habitattype) %>%
-    mutate(Index_min_criterium = round(Index_min_criterium, 4),
-           Index_harm_criterium = round(Index_harm_criterium, 4))
+    rename(type_analysis = Habitattype)
 
   colnames(lsvi_criterium) <- str_to_lower(colnames(lsvi_criterium))
 
@@ -1696,10 +1694,7 @@ write_lsvi_results <- function(lsvi_object, path, suffix = "") {
 
   lsvi_globaal <- lsvi_object$Resultaat_globaal %>%
     select(-Versie, -Kwaliteitsniveau) %>%
-    rename(type_analysis = Habitattype) %>%
-    mutate(Index_min_min = round(Index_min_min, 4),
-           Index_harm_harm = round(Index_harm_harm, 4),
-           Index_min_harm = round(Index_min_harm, 4))
+    rename(type_analysis = Habitattype)
 
   colnames(lsvi_globaal) <- str_to_lower(colnames(lsvi_globaal))
 
