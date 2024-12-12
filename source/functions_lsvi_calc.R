@@ -362,12 +362,22 @@ get_msa <- function(data_path_extra_var, record_ids = NULL, data_type = "mhq") {
   if (data_type == "mhq") {
 
     msa <- read_vc(file = "msa_mhq", root = data_path_extra_var) %>%
-      mutate(record_id = str_c(plot_id, "_", date_assessment))
+      mutate(record_id = str_c(plot_id, "_", date_assessment)) %>%
+      filter(type != "2180") %>%
+      select(-recording_givid)
+
 
   } else if (data_type == "vbi") {
 
     msa <- read_vc(file = "msa_vbi", root = data_path_extra_var) %>%
       mutate(record_id = str_c(plot_id, "_", periode))
+
+  } else if (data_type == "mhq_cd") {
+
+    msa <- read_vc(file = "msa_mhq", root = data_path_extra_var) %>%
+      mutate(record_id = recording_givid) %>%
+      filter(type == "2180") %>%
+      select(-recording_givid)
 
   }
 
@@ -928,7 +938,7 @@ if (!is.null(data_path_inboveg)) {
 ### voorwaarden duinen
 ###############################################################################
 
-get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
+get_voorwaarden_cd <- function(data_path, data_path_extravar, record_ids = NULL) {
 
   header <- get_header(data_path, record_ids) %>%
     mutate(ID = str_c(user_reference, "_", vague_date_begin)) %>%
@@ -969,6 +979,7 @@ get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
     filter(structure_var %in% c("gefixeerd_2120",
                                 "sterke verstuiving_2120",
                                 "beperkte verstuiving_2120")) %>%
+    select(-cover_code) %>%
     pivot_wider(names_from = structure_var,
                 values_from = cover) %>%
     mutate(gefixeerd_2120 = ifelse(is.na(gefixeerd_2120), 0, gefixeerd_2120),
@@ -1024,6 +1035,15 @@ get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
            Eenheid = "%") %>%
     rename(record_id = recording_givid)
 
+  voorwaarde_msa <- get_msa(data_path_extra_var, data_type = "mhq_cd", record_ids) %>%
+    select(record_id, type, msa_area_ha) %>%
+    mutate(Voorwaarde = "MSA",
+           Indicator = "minimum structuurareaal",
+           Criterium = "Structuur",
+           Type = "Decimaal getal",
+           Eenheid = "ha",
+           Waarde = msa_area_ha)
+
   voorwaarden <- voorwaarde_structuur %>%
     bind_rows(voorwaarde_verstuiving) %>%
     bind_rows(voorwaarde_rijshout) %>%
@@ -1031,6 +1051,7 @@ get_voorwaarden_cd <- function(data_path, record_ids = NULL) {
     bind_rows(voorwaarde_open_plek) %>%
     bind_rows(voorwaarde_moslaag) %>%
     bind_rows(voorwaarde_structuurverst) %>%
+    bind_rows(voorwaarde_msa) %>%
     mutate(Invoertype = NA) %>%
     left_join(header, by = "record_id") %>%
     select(record_id, ID, Criterium, Indicator, Voorwaarde, Waarde,

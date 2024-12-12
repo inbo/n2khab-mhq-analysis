@@ -58,14 +58,21 @@ check <- data_habitat_cd %>%
   filter(n() > 1)
 
 data_voorwaarden_cd <- get_voorwaarden_cd(data_path = path_mhq_terr,
+                                          data_path_extravar = path_extra_var,
                           record_ids = c(data_habitat_cd$record_id_square,
                                          data_habitat_cd$record_id_circle)) %>%
   left_join(select(pq_mhq_inbo, record_id, plot_type), by = "record_id") %>%
-  mutate(plot_type = ifelse(!Voorwaarde %in% c("fijnmazige afwisseling", "bedekking alle mossen"), "circle", plot_type)) %>%
+  mutate(plot_type = ifelse(!Voorwaarde %in% c("fijnmazige afwisseling", "bedekking alle mossen", "MSA"), "circle", plot_type)) %>%
   unique()
 
 data_soorten_kenm_cd <- get_soorten_kenmerken(data_path_inboveg = path_mhq_terr,
-                          record_ids = data_habitat_cd$record_id_square) 
+                          record_ids = data_habitat_cd$record_id_square) %>%
+  mutate(Kenmerk = ifelse(str_detect(Kenmerk, "Drepanocladus aduncus"),
+                                    "Drepanocladus", Kenmerk),
+        Kenmerk = ifelse(str_detect(Kenmerk, "Leucanthemum vulgare"),
+                                    "Leucanthemum vulgare Lam. s.l.", Kenmerk),
+        Kenmerk = ifelse(str_detect(Kenmerk, "Betula alba"),
+                                    "Betula pubescens", Kenmerk))
 
 check <- data_soorten_kenm_cd %>%
   group_by(ID, Kenmerk, Waarde, Vegetatielaag) %>%
@@ -96,7 +103,7 @@ Volgende voorwaarden worden afgeleid uit de meetvariabelen:
 
 De voorwaarde 'naakte bodem' van habitattype 2120 wordt niet bepaald.
 
-Voor habitattype 2180 zijn er geen dendrometrische gegevens en kunnen enkel de voorwaarden die af te leiden zijn uit de kruidlaaggegevens bepaald worden.
+Voor habitattype 2180 zijn er geen dendrometrische gegevens en kunnen enkel de voorwaarden die af te leiden zijn uit de kruidlaaggegevens bepaald worden en minimum structuurareaal
 
 ## Volledigheid van de invoergegevens
 
@@ -125,15 +132,12 @@ data_habitat_cd <- data_habitat_cd %>%
 ### Voorwaarden
 
 ```{r}
-check_voorwaarde_verstuiving <- get_structure_var(data_path, record_ids) %>%
+check_voorwaarde_verstuiving <- get_structure_var(data_path = path_mhq_terr) %>%
     filter(structure_var %in% c("gefixeerd_2120",
                                 "sterke verstuiving_2120",
                                 "beperkte verstuiving_2120")) %>%
     pivot_wider(names_from = structure_var,
                 values_from = cover) %>%
-    # mutate(gefixeerd_2120 = ifelse(is.na(gefixeerd_2120), 0, gefixeerd_2120),
-    #        `sterke verstuiving_2120` =  ifelse(is.na(`sterke verstuiving_2120`), 0, `sterke verstuiving_2120`),
-    #        `beperkte verstuiving_2120` =  ifelse(is.na(`beperkte verstuiving_2120`), 0, `beperkte verstuiving_2120`)) %>%
   mutate(som_bedekking = ifelse(is.na(gefixeerd_2120), 0, gefixeerd_2120) + 
             ifelse(is.na(`sterke verstuiving_2120`), 0, `sterke verstuiving_2120`) +
            ifelse(is.na(`beperkte verstuiving_2120`), 0, `beperkte verstuiving_2120`)) %>%
@@ -238,7 +242,7 @@ data_hs_2160 <- check_hs_2160 %>%
 
 data_voorwaarden_cd <- check_voorwaarden %>%
   filter(!((plot_type == "circle") & (Voorwaarde == "fijnmazige afwisseling"))) %>%
-  mutate(Waarde = ifelse(is.na(Waarde) & Voorwaarde %in% c("bedekking rijshout", "bedekking alle mossen", "bedekking structuurverstoring") ,
+  mutate(Waarde = ifelse(is.na(Waarde) & Voorwaarde %in% c("bedekking rijshout", "bedekking alle mossen", "bedekking structuurverstoring", "MSA") ,
                          0, Waarde)) %>%
   anti_join(data_hs_2160, by = c("ID", "Voorwaarde")) %>%
   bind_rows(data_hs_2160) %>%
@@ -252,6 +256,27 @@ data_voorwaarden_cd <- check_voorwaarden %>%
 data_soorten_kenm_cd <- data_soorten_kenm_cd %>%
   filter(!is.na(Kenmerk))
 
+
+
+#2180
+data_path_mhq_duinen <- file.path(fileman_up("n2khab-mhq-data"), "/processed/inboveg_mhq_terr")
+
+header_mhq_duinen <- read_vc("header_mhq_terr", root = data_path_mhq_duinen) 
+
+coord_mhq_duinen <- header_mhq_duinen %>%
+  filter(str_detect(survey, "Duinen")) %>%
+  filter(area == 9) %>%
+  select(record_id = recording_givid, x = longitude, y = latitude)
+
+check <- data_voorwaarden_cd %>%
+  filter(Voorwaarde == "MSA", Waarde == 0) %>%
+  left_join(coord_mhq_duinen, by = "record_id") %>%
+  left_join(select(data_habitat_cd, record_id = record_id_square, Habitattype), by = "record_id") %>%
+  st_as_sf(coords = c("x", "y"), crs = 4326) %>%
+  st_transform(crs = 31370)
+
+#st_write(check, "../output/check_msa_2180.gpkg", delete_dsn = TRUE)
+  
 ```
 
 ### Vegetatiegegevens
@@ -465,7 +490,7 @@ data_voorwaarden_cd <- data_voorwaarden_cd %>%
 
 ## TEST 2120
 
-```{r}
+```{r, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2120")
@@ -488,7 +513,7 @@ OK
 
 ## TEST 2130_hd
 
-```{r}
+```{r, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2130_hd")
@@ -511,7 +536,7 @@ OK
 
 OK
 
-```{r}
+```{r, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2130_had")
@@ -533,7 +558,7 @@ OK
 ## TEST 2160
 
 
-```{r}
+```{r, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2160")
@@ -556,7 +581,7 @@ OK
 
 ## TEST 2170
 
-```{r}
+```{r, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2170")
@@ -575,7 +600,7 @@ test <- test$Resultaat_detail %>%
 
 ## TEST 2180
 
-```{r}
+```{, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2180")
@@ -594,11 +619,10 @@ test <- test$Resultaat_detail %>%
 
 ```
 
-Grondvlak sleutelsoorten geeft steeds 0 als uitkomst, maar moet NA zijn.
 
 ## TEST 2190_mp
 
-```{r}
+```{r, eval = FALSE}
 
 data_habitat_test_type <- data_habitat_cd %>%
   filter(Habitattype == "2190_mp")
@@ -629,7 +653,7 @@ data_voorwaarden_cd <- data_voorwaarden_cd %>%
 write_vc(data_voorwaarden_cd, file = "data_voorwaarden_cd", root = input_path, 
          sorting = c("ID", "Voorwaarde"))
 write_vc(data_habitat_cd, file = "data_habitat_cd", root = input_path, 
-         sorting = c("ID", "Habitattype"))
+         sorting = c("ID", "Habitattype"), strict = FALSE)
 write_vc(data_soorten_kenm_cd, file = "data_soorten_kenm_cd", root = input_path, 
          sorting = c("ID", "Vegetatielaag", "Kenmerk"))
 
@@ -678,38 +702,43 @@ missing_belang %>%
 
 ### Manuele correctie
 
-+ belang bedekking structuurverstoring toevoegen: b
-
 ```{r}
-lsvi_cd$Resultaat_detail <- lsvi_cd$Resultaat_detail %>%
-  mutate(Belang = ifelse(is.na(Belang) & Indicator == "structuurverstoring", "b", Belang))
-
-lsvi_cd$Resultaat_indicator <- lsvi_cd$Resultaat_indicator  %>%
-  mutate(Belang = ifelse(is.na(Belang) & Indicator == "structuurverstoring", "b", Belang))
-
-check <- lsvi_cd$Resultaat_indicator  %>%
-  group_by(Indicator, Habitattype, ID) %>%
-  filter(n() > 1)
 
 correct_status_globaal <- lsvi_cd$Resultaat_indicator %>%
-  group_by(ID, Habitattype) %>%
   filter(!is.na(Status_indicator)) %>%
+  group_by(ID, Criterium) %>%
+  mutate(weight_crit = 1/n()) %>%
+  ungroup() %>%
+  group_by(Versie, Kwaliteitsniveau, ID, Habitattype) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
             aandeel_gunstig = n_gunstig / n_ind * 100,
-            status_habitatvlek =  n_zb_ongunstig == 0 & aandeel_gunstig > 50) %>%
+            status_habitatvlek =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
+            index_mean_ind = round(mean(Verschilscore), 6),
+            index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 6)
+            ) %>%
   ungroup() %>%
-  select(ID, Habitattype, n_zb_ongunstig, aandeel_gunstig, status_habitatvlek)
+  mutate(Aggregatiemethode = "RapportageHR") %>%
+  select(Versie, Kwaliteitsniveau, ID, Habitattype, Aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, Status = status_habitatvlek, index_mean_ind, index_mean_crit)
 
-check <- lsvi_cd$Resultaat_globaal %>%
-  left_join(correct_status_globaal, by = c("ID", "Habitattype")) %>%
-  filter(Status != status_habitatvlek)
+correct_status_criterium <- lsvi_cd$Resultaat_indicator %>%
+  filter(!is.na(Status_indicator)) %>%
+  group_by(Versie, Kwaliteitsniveau, ID, Habitattype, Criterium) %>%
+  summarise(n_gunstig = sum(Status_indicator),
+            n_ind = n_distinct(Indicator),
+            n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
+            aandeel_gunstig = n_gunstig / n_ind * 100,
+            status_criterium =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
+            index_mean_ind = round(mean(Verschilscore), 6)
+            ) %>%
+  ungroup() %>%
+  mutate(Aggregatiemethode = "RapportageHR") %>%
+  select(Versie, Kwaliteitsniveau, ID, Habitattype, Aggregatiemethode, Criterium, n_zb_ongunstig, aandeel_gunstig, Status_criterium = status_criterium, index_mean_ind)
 
-lsvi_cd$Resultaat_globaal <- lsvi_cd$Resultaat_globaal %>%
-  left_join(correct_status_globaal, by = c("ID", "Habitattype")) %>%
-  mutate(Status = status_habitatvlek) %>%
-  select(-status_habitatvlek)
+lsvi_cd$Resultaat_globaal <- correct_status_globaal
+
+lsvi_cd$Resultaat_criterium <- correct_status_criterium
   
 ```
 

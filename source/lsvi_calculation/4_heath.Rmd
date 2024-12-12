@@ -58,6 +58,13 @@ data_soorten_kenm_hs_id <- get_soorten_kenmerken(data_path_inboveg = path_mhq_te
                           record_ids = c(data_habitat_hs_id$record_id_square,
                                          data_habitat_hs_id$record_id_circle)))
 
+data_soorten_kenm_hs_id <- data_soorten_kenm_hs_id %>%
+  mutate(Kenmerk = ifelse(Kenmerk %in% c("Taraxacum Wiggers sectie Subvulgaria Christians.",
+                                         "Taraxacum Wiggers sectie Subvulgaria Chr.", "Taraxacum Wiggers sectie Subvulgaria Chr"),
+                          "Taraxacum Wiggers", Kenmerk),
+         Kenmerk = ifelse(str_detect(Kenmerk, "Betula alba"),
+                                    "Betula pubescens", Kenmerk))
+
 data_test <- data_soorten_kenm_hs_id %>%
   filter(ID == "863826_2022-09-29")
 
@@ -184,11 +191,7 @@ data_voorwaarden_hs_id <- check_voorwaarden %>%
   filter(!all_missing) %>%
   mutate(Waarde = ifelse(is.na(Waarde), 0, Waarde)) %>%
   select(ID, record_id, plot_type, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
-  unique() %>%
-  mutate(Voorwaarde = ifelse(Voorwaarde == "bedekking open vegetaties en kaal zand",
-                             "bedekking open vegetaties", Voorwaarde)) %>%
   unique()
-# in LSVI tabel heet de voorwaarde bij indocator horizontale structuur 'bedekking open vegetaties', maar gaat eigenlijk over 'bedekking open vegetaties en kaal zand'
 
 data_habitat_hs_id <- data_habitat_hs_id %>%
   anti_join(plots_all_missing, by = "ID")
@@ -278,7 +281,7 @@ data_habitat_test <- data_habitat_hs_id %>%
 
 ## TEST 2310
 
-```{r}
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_hs_id %>%
   filter(Habitattype == "2310")
 
@@ -304,7 +307,7 @@ Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieL
 
 ## TEST 2330_bu
 
-```{r}
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_hs_id %>%
   filter(Habitattype == "2330_bu") 
 
@@ -330,7 +333,7 @@ Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieL
 
 ## TEST 2330_dw
 
-```{r}
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_hs_id %>%
   filter(Habitattype == "2330_dw") 
 
@@ -382,7 +385,7 @@ Warning in invoercontroleData_soortenKenmerken(Data_soortenKenmerken, ConnectieL
 
 ## TEST 4010
 
-```{r}
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_hs_id %>%
   filter(Habitattype == "4010") %>%
   filter(ID == "23538_2022-09-01")
@@ -409,7 +412,7 @@ Sphagnum magellanicum Brid. --> geen sleutelsoort
 
 ## TEST 4030
 
-```{r}
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_hs_id %>%
   filter(Habitattype == "4030")
 
@@ -445,7 +448,7 @@ data_voorwaarden_hs_id  <- data_voorwaarden_hs_id  %>%
 write_vc(data_voorwaarden_hs_id , file = "data_voorwaarden_hs_id ", root = input_path, 
          sorting = c("ID", "Voorwaarde"))
 write_vc(data_habitat_hs_id, file = "data_habitat_hs_id ", root = input_path, 
-         sorting = c("ID", "Habitattype"))
+         sorting = c("ID", "Habitattype"), strict = FALSE)
 write_vc(data_soorten_kenm_hs_id, file = "data_soorten_kenm_hs_id ", root = input_path, 
          sorting = c("ID", "Vegetatielaag", "Kenmerk"))
 
