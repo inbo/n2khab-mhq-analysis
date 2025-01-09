@@ -2046,6 +2046,91 @@ aandeel_gunstig_indicator <- function(data_indicator) {
 }
 
 
+###########################################################################################################
 
+calc_status_habitat <- function(lsvi_habitat) {
 
+  lsvi_habitat <- lsvi_habitat %>%
+    mutate(Versie = "Versie 3",
+           SBZH = ifelse(in_sac, "Binnen", "Buiten"),
+           Habitattype = main_type,
+           Habitatsubtype = type,
+           WeightComb = weight,
+           StratumWeight = weight,
+           PlotWeight = 1,
+           Status_habitatvlek = ifelse(status, 1, 0)
+    )
+
+  status_flanders <- habitatandeelGunstig(lsvi_habitat)
+
+  status_flanders_tidy <- status_flanders %>%
+    mutate(schaal = "Vlaanderen",
+           type_resultaat = factor(TypeResultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
+    select(Versie, schaal, type_resultaat, Habitattype, SBZH, Habitatsubtype, n_obs = nObs,
+           Aandeel_Gunstig = AandeelGunstig,
+           Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI,
+           Aandeel_Gunstig_ULCI = AandeelGunstig_ULCI)
+
+  colnames(status_flanders_tidy) <- str_to_lower(colnames(status_flanders_tidy))
+
+  return(status_flanders_tidy)
+
+}
+
+###########################################################################################################
+
+calc_status_indicator <- function(lsvi_indicator){
+
+  lsvi_indicator <- lsvi_indicator %>%
+    mutate(Versie = "Versie 3",
+           SBZH = ifelse(in_sac, "Binnen", "Buiten"),
+           Habitattype = main_type,
+           Habitatsubtype = type,
+           WeightComb = weight,
+           StratumWeight = weight,
+           PlotWeight = 1,
+           Indicator = indicator,
+           Status_indicator = ifelse(status_indicator, 1, 0)
+    )
+
+  data_indicator <- lsvi_indicator
+  status_indicatoren <- NULL
+
+  for (habt in unique(data_indicator$Habitattype)) {
+
+    data_habt <- data_indicator %>%
+      filter(Habitattype == habt)
+
+    for (ind in unique(data_habt$Indicator)) {
+
+      data_ind <- data_habt %>%
+        filter(Indicator == ind) %>%
+        mutate(Status_habitatvlek = ifelse(Status_indicator, 1, 0))
+
+      if (nrow(data_ind) > 1) {
+
+        result_temp <- habitatandeelGunstig(data_ind, stratSBZH = FALSE) %>%
+          mutate(Indicator = ind,
+                 Schaal = "Vlaanderen")
+
+        status_indicatoren <- bind_rows(status_indicatoren, result_temp)
+      }
+    }
+  }
+
+  overz_indicatoren <- lsvi_indicator %>%
+    distinct(Habitattype, criterium, Indicator, belang)
+
+  status_indicatoren_tidy <- status_indicatoren %>%
+    left_join(overz_indicatoren, by = c("Habitattype", "Indicator")) %>%
+    mutate(type_resultaat = factor(TypeResultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
+    select(Versie, Schaal, type_resultaat, Habitattype, SBZH, Habitatsubtype, criterium, Indicator, belang, n_obs = nObs,
+           Aandeel_Gunstig = AandeelGunstig,
+           Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI,
+           AandeelGunstig_ULCI = AandeelGunstig_ULCI)
+
+  colnames(status_indicatoren_tidy) <- str_to_lower(colnames(status_indicatoren_tidy))
+
+  return(status_indicatoren_tidy)
+}
 
