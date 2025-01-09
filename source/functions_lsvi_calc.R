@@ -651,7 +651,7 @@ get_voorwaarden_91E0_sf <- function(data_path,
 
   voorwaarden <- get_structure_var(data_path, record_ids) %>%
     filter(structure_var %in% c("aandeel dood hout", "hoeveelheid dik dood hout",
-                                "sleutelsoorten boom- en struiklaag")) %>%
+                                "sleutelsoorten boom- en struiklaag", "overstromingsregime")) %>%
     mutate(structure_var = ifelse(structure_var == "sleutelsoorten boom- en struiklaag",
                                   "sleutelsoorten van de boom- en struiklaag", structure_var),
            Waarde = ifelse(structure_var == "hoeveelheid dik dood hout",
@@ -684,7 +684,7 @@ get_voorwaarden_91E0_sf <- function(data_path,
 
   vw_msa <- msa  %>%
     mutate(Indicator = "minimum structuurareaal") %>%
-    select(plot_id, Indicator, Waarde = MSA)
+    select(plot_id, Indicator, Waarde = msa_area_ha)
 
   vw_extra <- vw_bosconstantie %>%
     bind_rows(vw_msa) %>%
@@ -811,7 +811,10 @@ get_voorwaarden_1330_da <- function(data_path,
 
   vw_1330_da <- geefInvoervereisten(Versie = "Versie 3",
                                     Habitattype = "1330_da") %>%
-    select(Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype)
+    select(Criterium, Indicator,Voorwaarde, Type = TypeVariabele, Eenheid, Invoertype) %>%
+    mutate(Type = ifelse(Voorwaarde == "aanwezigheid schorklif/breuksteenbestorting", "Percentage", Type),
+           Eenheid = ifelse(Voorwaarde == "aanwezigheid schorklif/breuksteenbestorting", "%", Eenheid),
+           Invoertype = NA)
 
   voorwaarden <- get_structure_1330_da(data_path, plot_ids) %>%
     rename(Voorwaarde = structure_var, Waarde = value) %>%

@@ -13,6 +13,7 @@ overzicht_lsvi <- geefInvoervereisten(Kwaliteitsniveau = 1,
                             Versie = "Versie 3") %>%
   distinct(Habitatsubtype, Versie, Criterium, Indicator, Voorwaarde, Beoordeling, Eenheid, TypeVariabele)
 
+test <- geefSoortenlijstVoorIDs("662")
 ```
 
 ```{r}
@@ -26,9 +27,9 @@ overzicht_lsvi %>%
 
 Vragen:
 
-Gebruiken we voor de analyse ook de data van de rapportage uit 2019 of is deze data niet vergelijkvaar met de huidige dataset --> MONEOS plot
+Gebruiken we voor de analyse ook de data van de rapportage uit 2019 of is deze data niet vergelijkbaar met de huidige dataset --> MONEOS plot
 
-De coördinaten van de meetpunten die in 2024 werden opgemeten ontbreken nog.
+De coördinaten van de meetpunten die in 2024 werden opgemeten ontbreken nog --> OK
 
 Voor de rapportage uit 2019 werden structuurvariabelen voor 1330_da bepaald op niveau van schor. Kunnen de structuurvariabelen (of deel ervan) opnieuw bepaald worden -> ja, na midden oktober
 
@@ -52,9 +53,13 @@ overview <- data_habitat_moneos %>%
 
 data_voorwaarden_91E0_sf <- get_voorwaarden_91E0_sf(data_path = path_mhq_terr,
                                                     data_path_extra_var = path_extra_var,
-                                          record_ids = data_habitat_moneos$record_id_square)
+                                          record_ids = data_habitat_moneos$record_id_square) %>%
+  mutate(plot_type = "circle")
 
-data_voorwaarden_1330_da <- get_voorwaarden_1330_da(data_path = path_mhq_terr)
+data_voorwaarden_1330_da <- get_voorwaarden_1330_da(data_path = path_mhq_terr) %>%
+  filter(Indicator != "verzoeting") %>%
+  mutate(plot_type = "schor")
+  
 
 data_voorwaarden_moneos <- data_voorwaarden_91E0_sf %>%
   bind_rows(data_voorwaarden_1330_da)
@@ -89,27 +94,23 @@ De volgende variabele kon niet bepaald worden en wordt daarom niet meegerekend i
 
 ### Wilgenvloedbossen (91E0_sf)
 
-Voor habitat 91E0_sf gaat het om de onderstaande voorwaarden:
+De volgende voorwaarden worden rechtstreeks op het terrein ingeschat en dus niet afgeleid uit een dendrometrische opname zoals bij de overige boshabitats (zie Hoofdstuk \@ref(h:Boshabitats)).
+De waarden worden rechtstreeks ingevoerd in de LSVI-rekenmodule.
 
 * aantal exemplaren dik dood hout per ha,
 * aandeel dood hout,
-* grondvlak sleutelsoorten boom- en struiklaag.
-
-Deze voorwaarden worden rechtstreeks op het terrein ingeschat en dus niet afgeleid uit een dendrometrische opname zoals bij de overige boshabitats (zie Hoofdstuk \@ref(h:Boshabitats)). De waarden worden rechtstreeks ingevoerd in de LSVI-rekenmodule. 
+* grondvlak sleutelsoorten boom- en struiklaag
 
 De voorwaarden 'aantal groeiklassen aanwezig' en 'groeiklasse 5, 6 of 7 aanwezig' wordt afgeleid uit de genoteerde bedekking per groeiklasse.
 
-De voorwaarde bosconstantie: voorlopig zelfde manier als rapportage 2019, want voorlopig (?) geen andere gegevens. 
+De voorwaarde bosconstantie leiden we af uit vegetatiekaarten:
 
- + Gunstig als bos ontstaan is voor 1930
- + NA als bos ontstaan is na 1930 (we kunnen dan niet weten of het bos ouder is dan 30 jaar)
+* als bos aanwezig is op kaarten van 1992 of 1996 veronderstellen we dat het bos minstens 30 jaar oud is en beschouwen we de indicator als gunstig
+* meetpunten waar bos voor het eerst wordt waargenomen op een kaart van een latere datum dan 1996, beschouwen we als jonger dan 30 jaar en dus ongunstig
 
-Miniumum structuurareaal: voorlopig zelfde manier als rapportage 2019. Komt er nog een update van de berekening?
+Miniumum structuurareaal: gebaseerd op kaart uit 2024
 
-De volgende voorwaarde kon niet bepaald worden en wordt daarom niet meegerekend in de verdere analyse:
-
-* aandeel overstromende vloeden
-WEL gegevens, behalve voor de plots aan de Maas (normaal gezien dit najaar wel)
+Het overstromingsregime werd ingeschat via een GIS-analyse.
 
 ### Voorwaarden berekend door rekenmodule
 
@@ -134,7 +135,9 @@ voorwaarden_module %>%
 ```{r}
 voorwaarden_moneos  <- overzicht_lsvi %>%
   semi_join(data_voorwaarden_moneos , by = "Voorwaarde") %>%
-  select(Habitatsubtype, Criterium, Indicator, Voorwaarde, Eenheid, Type = TypeVariabele) 
+  select(Habitatsubtype, Criterium, Indicator, Voorwaarde, Eenheid, Type = TypeVariabele) %>%
+    mutate(Type = ifelse(Voorwaarde == "aanwezigheid schorklif/breuksteenbestorting", "Percentage", Type),
+           Eenheid = ifelse(Voorwaarde == "aanwezigheid schorklif/breuksteenbestorting", "%", Eenheid))
 
 check <- voorwaarden_moneos %>%
   distinct(Indicator, Voorwaarde)
@@ -161,20 +164,12 @@ Bij plot '1338805_2018-06-28' (1330_da) ontbreken alle structuurvariabelen.
 De target habitat van deze plot was 1330_hpr.
 Deze plot laten we weg uit de analyse.
 
-Bij 91E0_sf zijn er een aantal meetpunten waar de voorwaarde 'aantal exemplaren dik dood hout per ha' niet werd bepaald --> nakijken
-We veronderstellen hiervoor een nulwaarnemingen. 
-
-Bij 91E0_sf ontbreken de waarde voor MSA vaak omdat er onvoldoende gedetailleerde informatie is.
-De waarde van MSA ontbreekt voor de plots waar de coördinaten nog ontbreken (opnames 2024).
-
-Bosconstantie op basis van vegetatiekaart 
-
 ```{r}
 
 data_voorwaarden_moneos <- check_voorwaarden %>%
   filter(!all_missing) %>%
   mutate(Waarde = ifelse(is.na(Waarde) & Voorwaarde == "aantal exemplaren dik dood hout per ha", 0, Waarde)) %>%
-  select(ID, record_id, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid) %>%
+  select(ID, record_id, Criterium, Indicator, Voorwaarde, Waarde, Type, Invoertype, Eenheid, plot_type) %>%
   unique() %>%
   filter(!is.na(Waarde))
 
@@ -223,7 +218,8 @@ data_soorten_kenm_moneos <- data_soorten_kenm_moneos %>%
 
 ```
 
-Een 10-tal metingen voor 1330_da bevatten geen vegetatie --> doorgeven aan Bart
+Een 10-tal metingen voor 1330_da bevatten geen vegetatie.
+Na controle: het gaat inderdaad om plots zonder vegetatie.
 
 ```{r}
 missing_cover %>%
@@ -237,6 +233,32 @@ missing_cover %>%
   write_csv2("../../output/plots_1330_da_zondervegetatie.csv")
   
 ```
+
+De rekenmodule geeft een ontbrekende waarde voor de voorwaarden afgeleid uit de soortensamenstelling.
+We stellen de waardes gelijk aan 0 en voegen dit in de rekenmodule in via 'data_voorwaarden'.
+
+```{r}
+
+meetpunten_no_veg <- missing_cover %>%
+  select(ID, record_id, Habitattype)
+
+voorwaarden_1330_da_corrected <- geefInvoervereisten(Kwaliteitsniveau = 1,
+                            Habitattype = "1330",
+                            Versie = "Versie 3") %>%
+  filter(Habitatsubtype == "1330_da") %>%
+  filter(!is.na(TaxongroepId)) %>%
+  filter(Voorwaarde != "bedekking riet") %>%
+  mutate(Habitattype = Habitatsubtype) %>%
+  left_join(meetpunten_no_veg, by = "Habitattype") %>%
+  select(ID, record_id, Criterium, Indicator, Voorwaarde, Eenheid, Type = TypeVariabele) %>%
+  mutate(Invoertype = NA,
+         Waarde = 0)
+
+data_voorwaarden_moneos <- data_voorwaarden_moneos %>%
+  bind_rows(voorwaarden_1330_da_corrected) %>%
+  arrange(ID)
+```
+
 
 Voor volgende soorten worden ook de voorjaarsbedekking:
 
@@ -290,9 +312,10 @@ test <- test$Resultaat_detail %>%
 
 ## TEST 1330_da
 
-```{r}
+```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_moneos %>%
-  filter(Habitattype == "1330_da") 
+  filter(Habitattype == "1330_da") %>%
+  head()
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
@@ -303,21 +326,21 @@ test <- berekenLSVIbasis(Versie = "Versie 3",
                          Data_voorwaarden = data_voorwaarden_moneos %>%
                            semi_join(data_habitat_test_type, by = "ID"))
 
-test <- test$Resultaat_detail %>%
+test_detail <- test$Resultaat_detail %>%
   select(ID, Habitattype, Indicator, Belang, Voorwaarde, Referentiewaarde, Operator, Waarde, Status_voorwaarde, Verschilscore)
 ```
 
 
 ## LSVI-berekening
 
-```{r}
+```{r, eval = FALSE}
 
 input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/moneos/input") 
 
 write_vc(data_voorwaarden_moneos , file = "data_voorwaarden_moneos ", root = input_path, 
          sorting = c("ID", "Voorwaarde"))
 write_vc(data_habitat_moneos, file = "data_habitat_moneos ", root = input_path, 
-         sorting = c("ID", "Habitattype"))
+         sorting = c("ID", "Habitattype"),strict = FALSE)
 write_vc(data_soorten_kenm_moneos, file = "data_soorten_kenm_moneos ", root = input_path, 
          sorting = c("ID", "Vegetatielaag", "Kenmerk"))
 
@@ -335,42 +358,36 @@ lsvi_moneos  <- berekenLSVIbasis(Versie = "Versie 3",
 
 De indicator 'verruiging' van habitatsubtype 1330_da is enkel van toepassing voor zoutwaterschor. Gezien alle meetpunten in brakwaterschor gelegen zijn, wordt deze indicator niet meegerekend in de analyse. -> nakijken
 
-De indicator 'sleutelsoorten' bestaat uit twee voorwaarden: 'aantal sleutelsoorten hoog schor' en 'aantal sleutelsoorten laag schor'. De indicator is gunstig als beide voorwaarden gunstig scoren. De indicator wordt echter beoordeeld op basis van een vegetatieopname in een plot van 3m x 3m die ofwel in hoog schor ofwel in laag schor gelegen is, waardoor er niet aan beide voorwaarden kan worden voldaan. Daarom beoordelen we in deze analyse de indicator 'sleutelsoorten' als gunstig wanneer (minstens) één van beide voorwaarden gunstig scoort.
+De indicator 'sleutelsoorten' bestaat uit twee voorwaarden: 'aantal sleutelsoorten hoog schor' en 'aantal sleutelsoorten laag schor'. De indicator is gunstig als beide voorwaarden gunstig scoren.
+De indicator wordt echter beoordeeld op basis van een vegetatieopname in een plot van 3m x 3m die ofwel in hoog schor ofwel in laag schor gelegen is, waardoor er niet aan beide voorwaarden kan worden voldaan.
+Daarom beoordelen we in deze analyse de indicator 'sleutelsoorten' als gunstig wanneer (minstens) één van beide voorwaarden gunstig scoort.
 
 ```{r}
 
-data_habitat_2330_dw <- data_habitat_moneos %>%
-  filter(Habitattype == "2330_dw")
+voorwaarde_correct <- lsvi_moneos$Resultaat_detail %>%
+  mutate(TheoretischMaximum = ifelse(Voorwaarde == "aantal sleutelsoorten hoog schor", 16,
+                                     TheoretischMaximum),
+         Verschilscore = ifelse(Voorwaarde == "aantal sleutelsoorten hoog schor", 
+                                ifelse(as.numeric(Waarde) >= Referentiewaarde,
+                                       (as.numeric(Waarde) - as.numeric(Referentiewaarde)) / (TheoretischMaximum - as.numeric(Referentiewaarde)), 
+                                       - (as.numeric(Referentiewaarde) - as.numeric(Waarde)) / as.numeric(Referentiewaarde)),
+                                     Verschilscore))
 
-lsvi_eenjarigen <- berekenLSVIbasis(Versie = "Versie 3",
-                         Kwaliteitsniveau = 1,
-                         Aggregatiemethode = "RapportageHR",
-                         Data_habitat = data_habitat_2330_dw ,
-                         Data_voorwaarden = data_voorwaarden_moneos %>%
-                           semi_join(data_habitat_2330_dw, by = "ID"),
-                         Data_soortenKenmerken = data_soorten_kenm_moneos %>%
-                           semi_join(data_habitat_2330_dw, by = "ID") %>%
-                           filter(Vegetatielaag == "kruidlaag" | is.na(Vegetatielaag)),
-                         na.rm = TRUE)
+indicator_sleutelsoorten_1330_da <- voorwaarde_correct %>%
+  filter(Indicator == "sleutelsoorten",
+         Habitattype == "1330_da") %>%
+  group_by(ID, Habitattype, Criterium, Indicator, Belang) %>%
+  summarise(Status_indicator = any(Status_voorwaarde),
+            Verschilscore = max(Verschilscore)) %>%
+  ungroup()
 
-lsvi_eenjarigen_vw <- lsvi_eenjarigen$Resultaat_detail %>%
-  filter(Indicator == "éénjarigen")
+indicator_correct <- lsvi_moneos$Resultaat_indicator %>%
+  filter(!(Indicator == "sleutelsoorten" & Habitattype == "1330_da")) %>%
+  bind_rows(indicator_sleutelsoorten_1330_da)
 
-lsvi_eenjarigen_ind <- lsvi_eenjarigen$Resultaat_indicator %>%
-  filter(Indicator == "éénjarigen")
-
-lsvi_moneos$Resultaat_detail <- lsvi_moneos$Resultaat_detail %>%
-  anti_join(lsvi_eenjarigen_vw, by = c("ID", "Indicator")) %>%
-  bind_rows(lsvi_eenjarigen_vw) %>%
-  arrange(ID, Habitattype, Criterium, Indicator)
-
-lsvi_moneos$Resultaat_indicator <- lsvi_moneos$Resultaat_indicator %>%
-  anti_join(lsvi_eenjarigen_ind, by = c("ID", "Indicator")) %>%
-  bind_rows(lsvi_eenjarigen_ind) %>%
-  arrange(ID, Habitattype, Criterium, Indicator)
-
-correct_status_globaal <- lsvi_moneos$Resultaat_indicator %>%
+correct_status_globaal <- indicator_correct %>%
   filter(!is.na(Status_indicator)) %>%
+  filter(Indicator != "hoeveelheid dik dood hout") %>%
   group_by(ID, Criterium) %>%
   mutate(weight_crit = 1/n()) %>%
   ungroup() %>%
@@ -386,8 +403,9 @@ correct_status_globaal <- lsvi_moneos$Resultaat_indicator %>%
   ungroup() %>%
   select(ID, Habitattype, n_zb_ongunstig, aandeel_gunstig, status_habitatvlek, index_mean_ind, index_mean_crit)
 
-correct_status_criterium <- lsvi_moneos$Resultaat_indicator %>%
+correct_status_criterium <- indicator_correct %>%
   filter(!is.na(Status_indicator)) %>%
+    filter(Indicator != "hoeveelheid dik dood hout") %>%
   group_by(ID, Habitattype, Criterium) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
@@ -409,12 +427,10 @@ lsvi_moneos$Resultaat_criterium <- lsvi_moneos$Resultaat_criterium %>%
   mutate(Status_criterium = status_criterium) %>%
   select(-status_criterium)
 
+lsvi_moneos$Resultaat_detail <- voorwaarde_correct
+
+lsvi_moneos$Resultaat_indicator <- indicator_correct
 ```
-
-
-
-
-
 
 ### Check missing voorwaarden
 
@@ -479,7 +495,7 @@ lsvi_moneos$Resultaat_indicator %>%
 
 ```{r}
 
-output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/result") 
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/moneos/result") 
 
 lsvi_moneos %>%
   write_lsvi_results(path = output_path, suffix = "_moneos")

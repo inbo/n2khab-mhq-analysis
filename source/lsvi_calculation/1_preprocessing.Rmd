@@ -77,9 +77,11 @@ missing_values_vbi <- read_vc(root = path_vbi, file = "missing_values") %>%
   filter(segment_id == 1)
 
 #meest recent geobserveerde habitattype per meetpunt
-classif_vbi <- read_vc(root = path_vbi, file = "type_observed")
+classif_vbi <- read_vc(root = path_vbi, file = "type_observed_update")
 
 classif_vbi_recent <- classif_vbi %>%
+  rename(vbi_cycle = periode,
+         type_observed = type) %>%
   group_by(plot_id) %>%
   filter(vbi_cycle == max(vbi_cycle)) %>%
   ungroup() %>%

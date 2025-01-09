@@ -475,7 +475,8 @@ data_voorwaarden_fs <- data_voorwaarden_fs %>%
 
 ```{r, eval = FALSE}
 data_habitat_test_type <- data_habitat_fs %>%
-  filter(Habitattype %in% c("9120_qb", "9120")) 
+  filter(Habitattype %in% c("9120_qb", "9120")) %>%
+  head()
 
 test <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
