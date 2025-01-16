@@ -24,6 +24,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
+library(INBOtheme)
 library(git2rdata)
 library(n2khab)
 library(n2khabmon)
@@ -34,9 +35,13 @@ library(units)
 library(kableExtra)
 library(survey)
 library(ggh4x)
+library(scales)
+library(INLA)
+library(effectclass)
+
+conflicted::conflicts_prefer(dplyr::filter)
 
 options(dplyr.summarise.inform = FALSE)
-getwd()
 source("../functions_lsvi_calc.R")
 ```
 
