@@ -1,6 +1,9 @@
-# n2khab-mhq-analysis
-This repository contains the data analysis for the Monitoring Habitat Quality (MHQ) programme 
+# Data analysis for the Monitoring Habitat Quality (MHQ) programme
+
+This repository contains the R code for the data analysis of the Monitoring Habitat Quality (MHQ) programme.
 Information on MHQ can be found in [this report](https://publicaties.vlaanderen.be/view-file/52364).
+
+Different types of analysis can be found in following folders: 
 
 + [lsvi_calculation](https://github.com/inbo/n2khab-mhq-analysis/tree/main/source/lsvi_calculation)
 contains the R-code for the calculation of the local conservations status (LSVI) for each
