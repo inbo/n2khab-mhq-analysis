@@ -67,6 +67,34 @@ data_voorwaarden_vbi <- get_voorwaarden_fs(data_path = path_vbi,
                                           data_type = "vbi",
                                           data_habitat = data_habitat_vbi)
 
+data_voorwaarde_bosconstantie_paired <- data_voorwaarden_vbi %>%
+  filter(Voorwaarde == "bosconstantie") %>%
+  mutate(plot_id = str_sub(record_id, end = -3),
+         periode = str_sub(record_id, start = -1)) %>%
+  select(-record_id, -ID) %>%
+  group_by(plot_id) %>%
+  filter(n_distinct(periode) > 1) %>%
+  ungroup() %>%
+  unique() %>%
+  pivot_wider(names_from = periode, names_prefix = "p_", values_from = Waarde) %>%
+  mutate(p_3_adj = ifelse(p_2 == p_3 & p_2 < 100, p_3 + 10, p_3)) %>% # 10 jaar tussen p2 en p3 dus bosconstantie is minstens met 10 toegenomen 
+  mutate(Waarde_3 = pmax(p_2, p_3_adj), #bosconstantie kan niet afnemen we kiezen voor p3 maximum van p2 en p3
+         Waarde_2 = ifelse(p_3 == (p_2 + 20), p_2 + 10, Waarde_3)) %>% 
+  select(plot_id, Waarde_2, Waarde_3) %>%
+  pivot_longer(cols = c(Waarde_2, Waarde_3), names_to = "periode", values_to = "Waarde") %>%
+  mutate(record_id = str_c(plot_id, "_", str_sub(periode, start = -1))) %>%
+  select(record_id, Waarde) %>%
+  mutate(Voorwaarde = "bosconstantie")
+
+data_voorwaarde_bosconstantie_adj <- data_voorwaarden_vbi %>%
+  semi_join(data_voorwaarde_bosconstantie_paired, by = c("record_id", "Voorwaarde")) %>%
+  select(-Waarde) %>%
+  inner_join(data_voorwaarde_bosconstantie_paired, by = c("record_id", "Voorwaarde"))
+
+data_voorwaarden_vbi <- data_voorwaarden_vbi %>%
+  anti_join(data_voorwaarde_bosconstantie_adj, by = c("record_id", "Voorwaarde")) %>%
+  bind_rows(data_voorwaarde_bosconstantie_adj)
+
 data_voorwaarden_mhq <- get_voorwaarden_fs(data_path = path_mhq_anb,
                                           data_path_extra_var = path_extra_var,
                                           data_type = "mhq",
@@ -691,6 +719,10 @@ lsvi_fs$Resultaat_globaal <- correct_status_globaal
 
 lsvi_fs$Resultaat_criterium <- correct_status_criterium
 
+lsvi_fs$Resultaat_indicator  <- lsvi_fs$Resultaat_indicator  %>%
+  filter(Indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
+  filter(Indicator != "hoeveelheid dik dood hout")
+
 check <- lsvi_fs$Resultaat_globaal
 
 ```
@@ -713,12 +745,20 @@ lsvi_fs$Resultaat_criterium %>%
 ```
 
 ```{r, fig.width=9}
-lsvi_fs$Resultaat_indicator %>%
-  filter(Habitattype %in% c("9120")) %>%
+
+for(ht in unique(lsvi_fs$Resultaat_indicator$Habitattype)) {
+  
+  plot <- lsvi_fs$Resultaat_indicator %>%
+  filter(Habitattype == ht) %>%
   ggplot(aes(fill = Status_indicator, x = Indicator)) +
   geom_bar() +
   facet_wrap(~Habitattype, scales = "free", ncol = 2) +
   coord_flip()
+  
+  plot(plot)
+  
+}
+
 ```
 
 ## Write result
