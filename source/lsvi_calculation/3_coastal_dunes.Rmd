@@ -59,7 +59,7 @@ check <- data_habitat_cd %>%
 
 data_voorwaarden_cd <- get_voorwaarden_cd(data_path = path_mhq_terr,
                                           data_path_extravar = path_extra_var,
-                          record_ids = c(data_habitat_cd$record_id_square,
+                                          record_ids = c(data_habitat_cd$record_id_square,
                                          data_habitat_cd$record_id_circle)) %>%
   left_join(select(pq_mhq_inbo, record_id, plot_type), by = "record_id") %>%
   mutate(plot_type = ifelse(!Voorwaarde %in% c("fijnmazige afwisseling", "bedekking alle mossen", "MSA"), "circle", plot_type)) %>%
@@ -109,7 +109,7 @@ Voor habitattype 2180 zijn er geen dendrometrische gegevens en kunnen enkel de v
 
 ### Specifiactie habitatsubtype
 
-+ 2130: we berekenen lsvi voor beide subtypes -> nakijken
++ 2130: we berekenen lsvi voor beide subtypes en selecteren het subtype met de hoogste lsvi indexwaarde; bij gelijke lsviindex waarde selecteren we 2130_hd
 + 2190_overig: we berekenen lsvi voor subtype 2190_mp (er is enkel beoordelingstabel voor 2190_mp): 2190_overig eventueel manueel scoren.
 
 ```{r}
@@ -123,6 +123,28 @@ data_habitat_2130 <- data_habitat_cd %>%
   filter(type_observed == "2130") %>%
   select(-Habitattype) %>%
   left_join(subtypes_2130, by = "type_observed")
+
+data_soorten_2130 <- data_soorten_kenm_cd %>%
+                                semi_join(data_habitat_2130, by = "ID") %>%
+  as.data.frame()
+
+lsvi_temp <- berekenLSVIbasis(Versie = "Versie 3", 
+                              Data_habitat = data_habitat_2130,
+                              Data_soortenKenmerken = data_soorten_2130)
+
+select_max_index <- lsvi_temp$Resultaat_detail %>%
+  group_by(ID, type_observed, Habitattype) %>%
+  summarise(index = mean(Verschilscore)) %>%
+  ungroup() %>%
+  group_by(ID) %>%
+  filter(index == max(index)) %>%
+  ungroup() %>%
+  group_by(ID) %>%
+  filter(n() == 1 | Habitattype == "2130_hd") %>%
+  ungroup()
+
+data_habitat_2130 <- data_habitat_2130 %>%
+  semi_join(select_max_index, by = c("ID", "Habitattype"))
 
 data_habitat_cd <- data_habitat_cd %>%
   anti_join(data_habitat_2130, by = "ID") %>%
@@ -381,43 +403,47 @@ Voor volgende variabelen voeren we de correctie uit:
 + bedekking overige exoten
 + bedekking vergrassing
 
+Dit geldt ook voor bedekking sleutelsoorten van 2130.
 
 ```{r}
 
-data_habitat_2120 <- data_habitat_cd %>%
-  filter(Habitattype == "2120") %>%
+data_habitat_2120_2130 <- data_habitat_cd %>%
+  filter(Habitattype %in% c("2120", "2130_hd", "2130_had")) %>%
   anti_join(voorwaarden_2120_corrected_1, by = "ID") #de vegetatieloze plots
 
 lsvi_temp <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
-                         Data_habitat = data_habitat_2120,
+                         Data_habitat = data_habitat_2120_2130,
                          Data_soortenKenmerken = data_soorten_kenm_cd %>%
-                           semi_join(data_habitat_2120, by = "ID")) 
+                           semi_join(data_habitat_2120_2130, by = "ID")) 
 
-voorwaarden_2120_bedekking  <- lsvi_temp$Resultaat_detail %>%
-  filter(Voorwaarde %in% c("bedekking soorten pionierduingrasland",
+voorwaarden_2120_2130_bedekking  <- lsvi_temp$Resultaat_detail %>%
+  filter((Voorwaarde %in% c("bedekking soorten pionierduingrasland",
                            "bedekking verruiging",
                            "bedekking overige exoten",
-                           "bedekking vergrassing"))
+                           "bedekking vergrassing") & Habitattype == "2120") |
+           Voorwaarde == "bedekking sleutelsoorten")
 
 cover_veg <- get_cover_veglayers(data_path = path_mhq_terr, 
-                                          record_ids = voorwaarden_2120_bedekking$record_id_square) %>%
+                                          record_ids = voorwaarden_2120_2130_bedekking$record_id_square) %>%
   select(-layer_description) %>%
   pivot_wider(names_from = layer_code, values_from = cover, names_prefix = "cover_", values_fill = 0) %>%
   mutate(cover_veg = pmax(cover_K, 100 - cover_NB)) %>%
   select(record_id_square = recording_givid,cover_veg)
 
-voorwaarden_2120_bedekking_correct <- voorwaarden_2120_bedekking %>%
+voorwaarden_2120_2130_bedekking_correct <- voorwaarden_2120_2130_bedekking %>%
   left_join(cover_veg, by = "record_id_square") %>%
   mutate(Waarde_corr = pmin(100, as.numeric(Waarde) / cover_veg * 100),
-         Status_voorwaarde_corr = Waarde_corr <= as.numeric(Referentiewaarde)) %>%
+         Waarde_corr = ifelse(is.na(cover_veg), as.numeric(Waarde), Waarde_corr),
+         Status_voorwaarde_corr = ifelse(Operator == "<=", Waarde_corr <= as.numeric(Referentiewaarde),
+                                         ifelse(Operator == ">=", Waarde_corr >= as.numeric(Referentiewaarde), NA))) %>%
   select(ID, record_id = record_id_square, Criterium, Indicator, Voorwaarde, Belang, Waarde_orig = Waarde, cover_veg, Waarde_corr, Referentiewaarde, Status_voorwaarde, Status_voorwaarde_corr, Eenheid = EenheidWaarde, Type = TypeWaarde)
 ```
 
 
 ```{r}
-voorwaarden_2120_bedekking_correct %>%
+voorwaarden_2120_2130_bedekking_correct %>%
   select(-Status_voorwaarde, -Status_voorwaarde_corr) %>%
   mutate(Waarde_orig = as.numeric(Waarde_orig),
          Referentiewaarde = as.numeric(Referentiewaarde)) %>%
@@ -431,7 +457,7 @@ voorwaarden_2120_bedekking_correct %>%
 ```
 
 ```{r}
-voorwaarden_2120_bedekking_correct %>%
+voorwaarden_2120_2130_bedekking_correct %>%
   select(-Status_voorwaarde, -Status_voorwaarde_corr) %>%
   mutate(Waarde_orig = as.numeric(Waarde_orig),
          Referentiewaarde = as.numeric(Referentiewaarde)) %>%
@@ -446,7 +472,7 @@ voorwaarden_2120_bedekking_correct %>%
 
 
 ```{r}
-voorwaarden_2120_corrected_2 <- voorwaarden_2120_bedekking_correct %>%
+voorwaarden_2120_2130_corrected_2 <- voorwaarden_2120_2130_bedekking_correct %>%
   select(ID, record_id, Criterium, Indicator, Voorwaarde, Waarde = Waarde_corr, Eenheid, Type) %>%
   mutate(Invoertype = NA,
          plot_type = "square"
@@ -455,10 +481,10 @@ voorwaarden_2120_corrected_2 <- voorwaarden_2120_bedekking_correct %>%
 
 ```{r}
 data_voorwaarden_cd <- data_voorwaarden_cd %>%
-  anti_join(voorwaarden_2120_corrected_2, by = c("ID", "Voorwaarde")) %>%
+  anti_join(voorwaarden_2120_2130_corrected_2, by = c("ID", "Voorwaarde")) %>%
   anti_join(voorwaarden_2120_corrected_1, by = c("ID", "Voorwaarde")) %>%
   bind_rows(voorwaarden_2120_corrected_1,
-            voorwaarden_2120_corrected_2) %>%
+            voorwaarden_2120_2130_corrected_2) %>%
   arrange(ID, Voorwaarde)
 ```
 
@@ -704,7 +730,26 @@ missing_belang %>%
 
 ```{r}
 
-correct_status_globaal <- lsvi_cd$Resultaat_indicator %>%
+correct_voorwaarde_sleutelsoorten_2130_hd <- lsvi_cd$Resultaat_detail %>%
+  filter(Habitattype == "2130_hd") %>%
+  filter(str_detect(Indicator, "sleutelsoorten van")) %>%
+  mutate(Indicator = "sleutelsoorten")
+
+Resultaat_detail <- lsvi_cd$Resultaat_detail %>%
+  anti_join(correct_voorwaarde_sleutelsoorten_2130_hd, by = c("ID", "Voorwaarde")) %>%
+  bind_rows(correct_voorwaarde_sleutelsoorten_2130_hd)
+
+correct_indicator_sleutelsoorten_2130_hd <- correct_voorwaarde_sleutelsoorten_2130_hd %>%
+  group_by(Versie, Kwaliteitsniveau, ID, Habitattype, Belang, Criterium, Indicator) %>%
+  summarise(Status_indicator = any(Status_voorwaarde),
+            Verschilscore = max(Verschilscore)) %>%
+  ungroup()
+
+Resultaat_indicator <- lsvi_cd$Resultaat_indicator %>%
+  filter(!str_detect(Indicator, "sleutelsoorten van")) %>%
+  bind_rows(correct_indicator_sleutelsoorten_2130_hd)
+
+correct_status_globaal <- Resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
   group_by(ID, Criterium) %>%
   mutate(weight_crit = 1/n()) %>%
@@ -722,7 +767,7 @@ correct_status_globaal <- lsvi_cd$Resultaat_indicator %>%
   mutate(Aggregatiemethode = "RapportageHR") %>%
   select(Versie, Kwaliteitsniveau, ID, Habitattype, Aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, Status = status_habitatvlek, index_mean_ind, index_mean_crit)
 
-correct_status_criterium <- lsvi_cd$Resultaat_indicator %>%
+correct_status_criterium <- Resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
   group_by(Versie, Kwaliteitsniveau, ID, Habitattype, Criterium) %>%
   summarise(n_gunstig = sum(Status_indicator),
@@ -739,7 +784,14 @@ correct_status_criterium <- lsvi_cd$Resultaat_indicator %>%
 lsvi_cd$Resultaat_globaal <- correct_status_globaal
 
 lsvi_cd$Resultaat_criterium <- correct_status_criterium
+
+lsvi_cd$Resultaat_detail <- Resultaat_detail
+
+lsvi_cd$Resultaat_indicator <- Resultaat_indicator
   
+check <- correct_status_globaal %>%
+  group_by(ID, Habitattype) %>%
+  filter(n() > 1)
 ```
 
 ```{r}
