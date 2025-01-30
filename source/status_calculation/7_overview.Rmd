@@ -1,0 +1,53 @@
+# Overzicht resultaten
+
+```{r}
+
+habcat <- data.frame(habcat_code = c("gr_bm", "cd", "hs_id", "fs"),
+                     habcat_name = c("grassland_marsh", "coastal_dunes", "heath_inland_dunes", "forests"))
+
+status_flanders <- NULL
+trend_flanders <- NULL
+
+for (i in 1:nrow(habcat)) {
+  
+  input_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/", habcat$habcat_name[i],"/result"))
+  
+  status_flanders_habcat  <- read_vc(root = input_path,
+           file = str_c("status_habitat_", habcat$habcat_code[i]))
+  
+  trend_flanders_habcat <- read_vc(root = input_path,
+           file = str_c("trend_habitat_", habcat$habcat_code[i])) %>%
+    filter(parameter == "verschil_aandeel_gunstig_abs")
+  
+  status_flanders <- status_flanders %>%
+    bind_rows(status_flanders_habcat)
+  
+  trend_flanders <- trend_flanders %>%
+    bind_rows(trend_flanders_habcat)
+  
+}
+
+trend_flanders <- trend_flanders %>%
+  select(-periode, -year_min, -year_max)
+
+write_csv2(status_flanders, "../output/status_habitatkwaliteit.csv")
+write_csv2(trend_flanders, "../output/trend_habitatkwaliteit.csv")
+```
+
+
+```{r}
+status_flanders %>%
+  arrange(habitattype) %>%
+  datatable(rownames = FALSE,
+            filter = "top",
+            caption = "Aandeel habitat met gunstige toestand (\\%)")
+```
+
+```{r}
+trend_flanders %>%
+  arrange(habitattype) %>%
+  select(-parameter) %>%
+  datatable(rownames = FALSE,
+            filter = "top",
+            caption = "Absoluut verschil in aandeel habitat met gunstige toestand  (\\%)")
+```

@@ -1,4 +1,4 @@
-# Preprocessing
+# Preprocessing terrestrial
 
 ## Admin data
 
@@ -43,9 +43,52 @@ strata <- mhq_refpoints %>%
   select(point_code, sac_code, in_sac) %>%
   st_drop_geometry()
   
+# moneos pq's
+
+path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_terr")
+coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_mhq_terr)
+
+strata_91E0_sf <- coordinates_91E0_sf %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370) %>%
+  st_join(sac) %>%
+  mutate(in_sac = !is.na(sac_code)) %>%
+  select(link_mhq = plot_id, sac_code, in_sac) %>%
+  st_drop_geometry()
+
+# vbi
+path_vbi <- file.path(fileman_up("n2khab-mhq-data"), "processed/dwh_vbi")
+coordinates_vbi <- read_vc(file = "coordinates", root = path_vbi) 
+
+paired_2_3 <- coordinates_vbi %>%
+  filter(vbi_cycle > 1) %>%
+  select(plot_id, vbi_cycle, x, y) %>%
+  pivot_wider(names_from = "vbi_cycle",
+              values_from = c("x", "y")) %>%
+  mutate(distance_2_3 = sqrt((x_3 - x_2) ^ 2 + (y_3 - y_2) ^ 2)) %>%
+  select(plot_id, distance_2_3) %>%
+  mutate(plot_id = str_c("vbi_", plot_id))
+
+strata_vbi <- coordinates_vbi %>%
+  filter(vbi_cycle > 1) %>%
+  mutate(x_coord = x, y_coord = y) %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370) %>%
+  st_join(sac) %>%
+  mutate(in_sac = !is.na(sac_code)) %>%
+  mutate(link_mhq = str_c(plot_id, "_", vbi_cycle),
+         plot_id = str_c("vbi_", plot_id)) %>%
+  select(plot_id, link_mhq, sac_code, in_sac, vbi_cycle) %>%
+  st_drop_geometry() %>%
+  left_join(paired_2_3, by = "plot_id") %>%
+  mutate(point_code = ifelse(is.na(distance_2_3) | (distance_2_3 < 10), plot_id, str_c(plot_id, "_", vbi_cycle)))
+
+check_in_sac <- strata_vbi %>%
+  filter(vbi_cycle > 1) %>%
+  group_by(point_code) %>%
+  filter(n_distinct(in_sac) > 1) %>%
+  ungroup()
 ```
 
-## Weights
+## Areas
 
 ```{r}
 habmap_stdized_terr <- read_habitatmap_terr()
@@ -73,6 +116,140 @@ type_area <- habmap_stdized_terr$habitatmap_terr_types %>%
   summarise(area_ha = round(sum(area * phab/100) / 10000, 5)) %>%
   ungroup()
 
+
+```
+# Preprocessing aquatic - standing water
+
+```{r}
+
+path_lsvi_aq <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_aq")
+
+path_admin_mhq <- file.path(fileman_up("n2khab-sample-admin"), "data/mhq_watersurfaces/rapportage2025")
+
+measurements_ws <- read_vc(file = "HT31xx_header", root = path_lsvi_aq)
+
+mhq_ws_popunits <- read_vc(file = "mhq_watersurfaces_populationunits", path_admin_mhq)
+mhq_ws_assessments <- read_vc(file = "mhq_watersurfaces_assessments", path_admin_mhq)
+
+watersurfaces_hab <- read_watersurfaces_hab()
+
+watersurfaces_hab_table <- watersurfaces_hab$watersurfaces_types
+watersurfaces_hab_polygons <- watersurfaces_hab$watersurfaces_polygons
+
+watersurfaces_code <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "raw/watervlakken_codes/mapping_table_inbocode.csv")) %>%
+  select(code_watersurfaces = codeplas, inbocode)
+```
+
+```{r}
+# old ws code
+measurements_ws_old <- measurements_ws %>%
+  filter(str_detect(location, "_")) %>%
+  rename(inbocode = location) %>%
+  left_join(watersurfaces_code, by = "inbocode")
+
+no_match <- measurements_ws_old %>%
+  filter(is.na(code_watersurfaces))
+
+mhq_ws_popunits_unique <- mhq_ws_popunits %>%
+  group_by(sampling_unit_code, grts_ranking, grts_ranking_draw, area_class, sac) %>%
+  summarise(type_target = str_c(type, collapse = ";"),
+            source = str_c(str_c(type, ":", source), collapse = ";")) %>%
+  ungroup() %>%
+  rename(code_watersurfaces = sampling_unit_code)
+
+measurements_ws_all <- measurements_ws %>%
+  filter(!str_detect(location, "_")) %>%
+  rename(code_watersurfaces = location) %>%
+  bind_rows(measurements_ws_old) %>%
+  filter(suitable_mhq) %>%
+  left_join(mhq_ws_popunits_unique, by = "code_watersurfaces") %>%
+  mutate(in_watersurfaces_hab = code_watersurfaces %in% watersurfaces_hab_table$polygon_id)
+
+```
+
+De opnames bevatten ook waterlichamen die niet geselecteerd werden in kader van mhq.
+We selecteren de waterlichamen die werden opgemeten in de eerste meetcyclus en de waterlichamen die werden geselecteerd voro de tweede meetcyclus. 
+
+```{r }
+
+sample_cycle2 <- st_read(file.path(fileman_up("n2khab-mhq-design"), "habitatwatersurfaces_cycle2/output/mhq_standingwater_cycle2_2024-04-17.gpkg")) %>%
+  st_drop_geometry()
+
+measurements_cycle1 <- read_vc(file = "mhq_watersurfaces_measurements", root = file.path(fileman_up("n2khab-mhq-design"), "habitatwatersurfaces_cycle1/output")) %>%
+  filter(measurement_type == "biotic")
+
+measurements_ws_all <- measurements_ws_all %>%
+  mutate(in_sample_cycle2 = code_watersurfaces %in% sample_cycle2$polygon_id,
+         measured_cycle1 = code_watersurfaces %in% measurements_cycle1$polygon_id) %>%
+  mutate(ws_type = ifelse(in_sample_cycle2 | measured_cycle1, "mhq_sample", 
+                       ifelse(!is.na(grts_ranking_draw), "mhq_sampleframe", "other")))
+```
+
+```{r}
+measurements_ws_all %>%
+  group_by(ws_type) %>%
+  summarise(n_watersurfaces = n_distinct(code_watersurfaces)) %>%
+  ungroup() %>%
+  kable() %>%
+  kable_styling()
+```
+
+
+
+## Areas strata
+
+We maken gebruik van [watersurfaces_hab_v6](https://zenodo.org/records/14621825): Map of standing water habitat types and regionally important biotopes in Flanders.
+
+We controleren eerst de versie, door de md5 hash op de Zenodo website te vergelijken met de md5 hash van het bestand dat wordt ingelezen:
+
+```{r}
+
+path <- fileman_up("n2khab_data")
+file <- "20_processed/watersurfaces_hab"
+
+mypath <- file.path(path, file)
+
+hashes <-
+    tibble(filepath = str_c(mypath, "/",
+        list.files(path = mypath,
+            recursive = TRUE)
+      )) %>%
+    mutate(filename = str_match(filepath, "(.+\\/)*(.+)")[,3],
+           md5_lokaal = map(filepath, function(x) {
+                           file(x) %>% md5 %>% str_c(collapse = '')
+                         }) %>% as.character,
+           md5_zenodo = c("4f589b43c6d3d38e06ee3ea81e3d2058"),
+           match = md5_lokaal == md5_zenodo) %>%
+    select(filename,
+           md5_lokaal,
+           md5_zenodo,
+           match)
+
+hashes
+
+if (!all.equal(hashes$md5_lokaal, hashes$md5_zenodo)) {
+    stop(cat("The standardized version is NOT up to date ! Please check  the datasource. "))
+}
+```
+```{r}
+
+ws_hab_area <- watersurfaces_hab_polygons %>%
+  filter(!is.na(polygon_id_habitatmap)) %>%
+  st_join(sac, largest = TRUE) %>%
+  mutate(area_ha = drop_units(st_area(geom) / 10000)) %>%
+  st_drop_geometry() %>%
+  mutate(in_sac = !is.na(sac_code),
+         area_class = ifelse(area_ha <= 1, "area <= 1 ha",
+                            ifelse(area_ha <= 5, "1 ha < area <= 5 ha",
+                                  ifelse(area_ha <= 50, "5 ha < area < 50 ha", "5 ha < area < 50 ha")))) %>%
+  select(polygon_id, in_sac, area_ha, area_class) 
+
+type_ws_area <- watersurfaces_hab_table %>%
+  inner_join(ws_hab_area, by = "polygon_id") %>%
+  group_by(type, in_sac, area_class) %>%
+  summarise(area_ha = sum(area_ha),
+            n_ws = n_distinct(polygon_id)) %>%
+  ungroup()
 
 ```
 

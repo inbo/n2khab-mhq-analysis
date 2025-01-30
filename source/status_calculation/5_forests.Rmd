@@ -1,4 +1,4 @@
-# Heath and inland dunes
+# Boshabitats
 
 ```{r}
 types_habcat <- read_types() %>%
@@ -22,8 +22,33 @@ lsvi_indicator <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_
 data_habitat <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_name, "/input")),
                              file = str_c("data_habitat_", habcat_code))
 
-data_habitat <- data_habitat %>%
-  select(id = ID, type_analysis = Habitattype, date, link_mhq)
+lsvi_detail_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/result"),
+                             file = "lsvi_detail_moneos")
+
+lsvi_globaal_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/result"),
+                             file = "lsvi_globaal_moneos")
+
+lsvi_indicator_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/result"),
+                             file = "lsvi_indicator_moneos")
+
+data_habitat_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/input"),
+                             file = "data_habitat_moneos")
+
+data_habitat_mhq <- data_habitat %>%
+  filter(survey == "anb") %>%
+  select(id = ID, type_analysis = Habitattype, date, record_id = record_id_square, link_mhq)
+
+data_habitata_vbi <- data_habitat %>%
+  filter(survey == "vbi") %>%
+  select(id = ID, type_analysis = Habitattype, phab, date, link_mhq = record_id_square, vbi_cycle)
+
+data_habitat_moneos <- data_habitat_moneos %>%
+  select(id = ID, type_analysis = Habitattype, date, record_id = record_id_square, link_mhq) %>%
+  filter(type_analysis == "91E0_sf")
+
+data_habitat <- bind_rows(data_habitat_mhq,
+                          data_habitata_vbi,
+                          data_habitat_moneos)
 
 ```
 
@@ -33,17 +58,17 @@ data_habitat <- data_habitat %>%
 mhq_measurements_habcat <- mhq_measurements %>%
   semi_join(types_habcat, by = "type") %>%
   rename(date = measurement_date) %>%
-  inner_join(data_habitat, by = c("link_mhq", "date"))
+  inner_join(data_habitat_mhq, by = c("link_mhq", "date"))
 
 check_missing_lsvi <- mhq_measurements %>%
   semi_join(types_habcat, by = "type") %>%
   rename(date = measurement_date) %>%
-  anti_join(data_habitat, by = c("link_mhq", "date"))
+  anti_join(data_habitat_mhq, by = c("link_mhq", "date"))
 
-check_missing_mhq_admin <- data_habitat %>%
+check_missing_mhq_admin <- data_habitat_mhq %>%
   anti_join(mhq_measurements_habcat, by = c("link_mhq", "date")) %>%
   filter(!str_detect(link_mhq, "double|IV"))
-
+  
 ```
 
 ```{r}
@@ -57,7 +82,42 @@ mhq_su <- mhq_measurements_habcat %>%
 check <- mhq_su %>%
   group_by(point_code, date) %>%
   filter(n() > 1)
- 
+
+moneos_su <- data_habitat_moneos %>%
+  mutate(type = type_analysis,
+         main_type = "91E0",
+         point_code = link_mhq) %>%
+  left_join(strata_91E0_sf, by = "link_mhq")
+
+vbi_su <- data_habitata_vbi %>%
+  mutate(phab = ifelse(is.na(phab), 100, phab)) %>%
+  group_by(date, link_mhq, vbi_cycle) %>%
+  filter(phab == max(phab)) %>%
+  ungroup() %>%
+  mutate(type = type_analysis,
+         main_type = str_sub(type, 1, 4)) %>%
+  left_join(strata_vbi, by = c("link_mhq", "vbi_cycle")) %>%
+  mutate(distance_2_3 = round(distance_2_3, 1)) %>%
+  select(id, point_code, link_mhq, vbi_cycle, date, main_type, type, type_analysis, phab, in_sac, distance_2_3)
+  
+check_in_sac <- vbi_su %>%
+  group_by(point_code) %>%
+  filter(n_distinct(in_sac) > 1)
+
+# 1 punt vbi_318089 bij eerste meting binnen SBZH, bij tweede meting buiten SBZH
+vbi_su <- vbi_su %>%
+  group_by(point_code) %>%
+  mutate(in_sac = any(in_sac)) %>%
+  ungroup()
+
+check_type <- vbi_su %>%
+  group_by(point_code, vbi_cycle) %>%
+  filter(n_distinct(type) > 1)
+
+mhq_su <- mhq_su %>%
+  bind_rows(moneos_su) %>%
+  bind_rows(vbi_su)
+
 mhq_su_recent <- mhq_su %>%
   group_by(point_code) %>%
   filter(date == max(date)) %>%
@@ -113,18 +173,18 @@ mhq_su_remeasured <- mhq_su_remeasured %>%
 ```{r}
 weights_recent_table  %>%
   arrange(main_type) %>%
-  kable(caption = "Gewichten toestand habitatkwaliteit") %>%
-  kable_styling()
+  datatable(rownames = FALSE,
+            filter = "top",
+            caption = "Gewichten toestand habitatkwaliteit")
 ```
-
 
 ### Trend
 
 ```{r}
 weights_remeasured  %>%
-  arrange(main_type) %>%
-  kable(caption = "Gewichten trend habitatkwaliteit") %>%
-  kable_styling()
+  datatable(rownames = FALSE,
+            filter = "top",
+            caption = "Gewichten trend habitatkwaliteit")
 ```
 
 
@@ -132,13 +192,18 @@ weights_remeasured  %>%
 
 ```{r}
 lsvi_voorwaarde <- lsvi_detail %>%
+  bind_rows(lsvi_detail_moneos) %>%
   inner_join(select(mhq_su, id, type_analysis, type, main_type, in_sac, point_code), by = c("id", "type_analysis")) 
 
 lsvi_indicator <- lsvi_indicator %>%
+    bind_rows(lsvi_indicator_moneos) %>%
   inner_join(select(mhq_su, id, type_analysis, type, main_type, in_sac, point_code), by = c("id", "type_analysis")) %>%
-  filter(!is.na(status_indicator))
-
+  filter(!is.na(status_indicator)) %>%
+  filter(indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
+  filter(indicator != "hoeveelheid dik dood hout")
+  
 lsvi_habitat <- lsvi_globaal %>%
+  bind_rows(lsvi_globaal_moneos) %>%
   inner_join(select(mhq_su, id, type_analysis, type, main_type, in_sac, point_code), by = c("id", "type_analysis"))
 ```
 
@@ -222,7 +287,7 @@ status_flanders %>%
   theme(legend.position = "bottom")
 ```
 
-#### HQ index
+#### Kwaliteitsindex
 
 ```{r}
 
@@ -331,10 +396,11 @@ mhq_su_remeasured %>%
   filter(periode != "extra") %>%
   group_by(main_type, periode) %>%
   summarise(year_min = min(year(date)),
-            year_max = min(year_max)) %>%
+            year_max = min(year_max),
+            n_pq = n_distinct(point_code)) %>%
   ungroup() %>%
   mutate(periode_year = str_c(year_min, " - ", year_max)) %>%
-  select(habitattype = main_type, meetcyclus = periode, periode = periode_year) %>%
+  select(habitattype = main_type, meetcyclus = periode, periode = periode_year, n_pq) %>%
   kable() %>%
   kable_styling() %>%
   collapse_rows(columns = 1)
@@ -376,11 +442,87 @@ lsvi_habitat <- lsvi_habitat_remeasured %>%
 
 lsvi_habitat_trend <- calc_trend_habitat(lsvi_habitat)
 
+lsvi_habitat_trend_glm <- calc_trend_habitat(lsvi_habitat, re_location = FALSE)
+
 lsvi_habitat_trend %>%
   write_vc(root = output_path,
            file = str_c("trend_habitat_", habcat_code),
            sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype", "parameter"),
            strict = FALSE)
+```
+
+```{r, eval = FALSE}
+trend_flanders_survey <- trend_flanders %>%
+  filter(type_resultaat == "Habitattype") %>%
+  mutate(model = "survey")
+
+trend_flanders_glmm <- lsvi_habitat_trend %>%
+  filter(type_resultaat == "Habitattype") %>%
+  filter(parameter == "aandeel_gunstig") %>%
+  rename(aandeel_gunstig = mean, aandeel_gunstig_llci = llci_0.95, aandeel_gunstig_ulci = ulci_0.95) %>%
+  mutate(model = "glmm inla")
+
+trend_flanders_glm <- lsvi_habitat_trend_glm %>%
+  filter(type_resultaat == "Habitattype") %>%
+  filter(parameter == "aandeel_gunstig") %>%
+  rename(aandeel_gunstig = mean, aandeel_gunstig_llci = llci_0.95, aandeel_gunstig_ulci = ulci_0.95) %>%
+  mutate(model = "glm inla")
+
+overzicht <- trend_flanders_survey %>%
+  bind_rows(trend_flanders_glmm) %>%
+  bind_rows(trend_flanders_glm) %>%
+  select(model, habitattype, periode, aandeel_gunstig, aandeel_gunstig_llci, aandeel_gunstig_ulci) %>%
+  arrange(habitattype, periode)
+
+overzicht %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+  
+```
+
+```{r}
+trend_flanders_glmm <- lsvi_habitat_trend %>%
+  filter(type_resultaat == "Habitattype") %>%
+  filter(parameter != "aandeel_gunstig") %>%
+  select(habitattype, parameter, mean, llci_0.95, ulci_0.95, klasse) %>%
+  mutate(model = "glmm inla")
+
+trend_flanders_glm <- lsvi_habitat_trend_glm %>%
+  filter(type_resultaat == "Habitattype") %>%
+  filter(parameter != "aandeel_gunstig") %>%
+  select(habitattype, parameter, mean, llci_0.95, ulci_0.95, klasse) %>%
+  mutate(model = "glm inla")
+
+overzicht_verschil <- trend_flanders_glmm %>%
+  bind_rows(trend_flanders_glm) %>%
+  arrange(habitattype, parameter)
+
+overzicht_verschil %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+```
+
+
++ check model
+
+```{r}
+analyseset <- lsvi_habitat %>%
+  filter(main_type == 9190) %>%
+  mutate(weight_scaled = weight/max(weight),
+         status = ifelse(status, 1, 0)) %>%
+  select(point_code, periode, main_type, type, in_sac, weight_scaled, status)
+
+model_inla_re <- inla(formula = status ~ 0 + periode +
+                               f(point_code,
+                                 model = "iid",
+                                 hyper = list(theta = list(prior = "pc.prec", param = c(1, 0.05)))),
+                             family = "binomial",
+                             data = analyseset,
+                             weights = weight_scaled,
+                             control.compute = list(config = TRUE, waic = TRUE),
+                             control.predictor = list(compute = TRUE))
+
+summary(model_inla_re)
 ```
 
 
@@ -393,6 +535,7 @@ klasse_color <- c(rev(traffic_palette(7)), "grey65", "grey35", "grey50") %>%
 klasse_color[4] <- inbo_steun_blauw
 
 lsvi_habitat_trend %>%
+  filter(habitattype != "9110") %>%
   filter(parameter == "verschil_aandeel_gunstig_abs") %>%
   filter(sbzh != "Buiten") %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
@@ -408,7 +551,7 @@ lsvi_habitat_trend %>%
        x = "Habitattype") +
   facet_wrap(~ schaal) +
   scale_x_discrete(limits = rev) +
-  scale_y_continuous(labels = scales::percent, limits = c(-0.60,0.60)) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.5, 0.5)) +
   scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   labs(colour = "Interpretatie trend") +
   coord_flip() +
@@ -423,6 +566,7 @@ breaks_log <- log(labels_prct/100 + 1) + 1
 labels_show <- str_c(labels_prct, "%")
 
 lsvi_habitat_trend %>%
+  filter(habitattype != "9110") %>%
   filter(parameter == "verschil_aandeel_gunstig_rel") %>%
   filter(sbzh != "Buiten") %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
@@ -644,13 +788,44 @@ colnames(trend_indicator) <- str_to_lower(colnames(trend_indicator))
 lsvi_indicatoren <- lsvi_indicatoren_remeasured %>%
   filter(periode != "extra")
 
-lsvi_indicator_trend <- calc_trend_indicator(lsvi_indicatoren)
+lsvi_indicator_trend <- calc_trend_indicator(lsvi_indicatoren, re_location = FALSE)
 
 lsvi_indicator_trend %>%
   write_vc(root = output_path,
            file = str_c("trend_indicatoren_", habcat_code),
            sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
            strict = FALSE)
+
+```
+```{r}
+
+for (ht in unique(lsvi_indicator_trend$habitattype)) {
+  
+  plot <- lsvi_indicator_trend %>%
+  filter(habitattype == ht) %>%
+  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+  ggplot(aes(x = indicator, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100, label = klasse, 
+             shape = belang,
+             colour = klasse)) +
+  geom_point(size = 7) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
+  geom_text(size = 4, colour = "white") +
+  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+       x = "Habitattype") +
+  facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.90,0.90)) +
+  scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  labs(colour = "Interpretatie trend") +
+  coord_flip() +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom")
+  
+  plot(plot)
+  
+}
 
 ```
 
@@ -669,7 +844,7 @@ indicatoren_wide <- lsvi_indicatoren_remeasured %>%
 
 ```{r}
 
-diff_index_ind <- calc_diff_index_hq_indicator(indicatoren_wide)
+diff_index_ind <- calc_diff_index_hq_indicator(indicatoren_wide, threshold = 0.1)
 
 diff_index_ind %>%
   write_vc(root = output_path,
@@ -704,7 +879,7 @@ for (habt in unique(diff_index_ind$habitattype)) {
        colour = "Interpretatie verschil",
        shape = "Belang indicator") + 
   geom_hline(yintercept = 0, linetype = "dashed")  +
-  geom_hline(yintercept = c(-0.25,0.25), linetype = 3) +
+  geom_hline(yintercept = c(-0.1,0.1), linetype = 3) +
     lims(y = c(-1, 1)) +
   scale_color_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   theme(strip.text.y = element_text(angle = 0), 

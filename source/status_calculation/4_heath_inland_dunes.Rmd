@@ -1,4 +1,4 @@
-# Heath and inland dunes
+# Heide en inlandse duinen
 
 ```{r}
 types_habcat <- read_types() %>%
@@ -113,20 +113,19 @@ mhq_su_remeasured <- mhq_su_remeasured %>%
 ```{r}
 weights_recent_table  %>%
   arrange(main_type) %>%
-  kable(caption = "Gewichten toestand habitatkwaliteit") %>%
-  kable_styling()
+  datatable(rownames = FALSE,
+            filter = "top",
+            caption = "Gewichten toestand habitatkwaliteit")
 ```
-
 
 ### Trend
 
 ```{r}
 weights_remeasured  %>%
-  arrange(main_type) %>%
-  kable(caption = "Gewichten trend habitatkwaliteit") %>%
-  kable_styling()
+  datatable(rownames = FALSE,
+            filter = "top",
+            caption = "Gewichten trend habitatkwaliteit")
 ```
-
 
 ## Status per plot
 
@@ -155,10 +154,11 @@ output_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mh
 mhq_su_recent %>%
   group_by(main_type) %>%
   summarise(year_min = min(year(date)),
-            year_max = max(year(date))) %>%
+            year_max = max(year(date)),
+            n_pq = n_distinct(point_code)) %>%
   ungroup() %>%
   mutate(periode = str_c(year_min, " - ", year_max)) %>%
-  select(habitattype = main_type, periode) %>%
+  select(habitattype = main_type, n_pq, periode) %>%
   kable(caption = "Periode toestand habitatkwaliteit") %>%
   kable_styling()
 
@@ -222,7 +222,7 @@ status_flanders %>%
   theme(legend.position = "bottom")
 ```
 
-#### HQ index
+#### Kwaliteitsindex
 
 ```{r}
 
@@ -331,10 +331,11 @@ mhq_su_remeasured %>%
   filter(periode != "extra") %>%
   group_by(main_type, periode) %>%
   summarise(year_min = min(year(date)),
-            year_max = min(year_max)) %>%
+            year_max = min(year_max),
+            n_pq = n_distinct(point_code)) %>%
   ungroup() %>%
   mutate(periode_year = str_c(year_min, " - ", year_max)) %>%
-  select(habitattype = main_type, meetcyclus = periode, periode = periode_year) %>%
+  select(habitattype = main_type, meetcyclus = periode, n_pq, periode = periode_year) %>%
   kable() %>%
   kable_styling() %>%
   collapse_rows(columns = 1)
@@ -651,6 +652,37 @@ lsvi_indicator_trend %>%
            file = str_c("trend_indicatoren_", habcat_code),
            sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
            strict = FALSE)
+
+```
+```{r}
+
+for (ht in unique(lsvi_indicator_trend$habitattype)) {
+  
+  plot <- lsvi_indicator_trend %>%
+  filter(habitattype == ht) %>%
+  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+  ggplot(aes(x = indicator, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100, label = klasse, 
+             shape = belang,
+             colour = klasse)) +
+  geom_point(size = 7) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
+  geom_text(size = 4, colour = "white") +
+  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+       x = "Habitattype") +
+  facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.90,0.90)) +
+  scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  labs(colour = "Interpretatie trend") +
+  coord_flip() +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom")
+  
+  plot(plot)
+  
+}
 
 ```
 

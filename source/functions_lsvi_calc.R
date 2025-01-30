@@ -737,26 +737,26 @@ get_voorwaarden_fs <- function(data_path,
   stand_age <- get_stand_description(data_path, data_type = data_type, record_ids) %>%
     filter(variable == "stand_age") %>%
     filter(segment_id == 1) %>%
-    select(record_id, stand_age = category)
+    select(record_id, stand_age = category) %>%
+    mutate(stand_age_numeric = ifelse(stand_age == "ongelijkjarig", 41,
+                                      ifelse(stand_age %in% c("1 - 20 jaar", "niet van toepassing"), 20,
+                                             ifelse(stand_age == "121 - 140 jaar", 121,
+                                                    ifelse(stand_age == "101 - 120 jaar", 101,
+                                                           ifelse(stand_age == "141 - 160 jaar", 141,
+                                                                  ifelse(stand_age == "> 160 jaar", 161, as.numeric(str_sub(stand_age, 1, 2)))))))))
 
   bosconstantie <- get_bosconstantie(data_path_extra_var, data_type = data_type, record_ids) %>%
-    select(record_id, blk)
+    select(record_id, blk) %>%
+    mutate(blk_numeric = ifelse(blk == "Bos ontstaan voor 1775", 250,
+                                ifelse(blk == "Bos ontstaan tussen 1775 en 1850", 175,
+                                       ifelse(blk %in% c("Bos ontstaan tussen 1850 en +/- 1930", "Bos ontstaan tussen 1850 en +/- 1940"), 101, NA))))
 
   vw_bosconstantie <- stand_age  %>%
     full_join(bosconstantie, by = c("record_id")) %>%
     mutate(blk = ifelse(is.na(blk), "missing", blk),
            stand_age = ifelse(is.na(stand_age), "missing", stand_age)) %>%
     mutate(Voorwaarde = "bosconstantie",
-           Waarde = ifelse(blk %in% c("Bos ontstaan voor 1775",
-                                      "Bos ontstaan tussen 1775 en 1850") |
-                             stand_age %in% c("101 - 120 jaar",
-                                              "121 - 140 jaar",
-                                              "141 - 160 jaar",
-                                              "> 160 jaar"),
-                           101,
-                           ifelse(blk %in% c("Bos ontstaan tussen 1850 en +/- 1930") |
-                                  stand_age %in% c("81 - 100 jaar"), 81,
-                                  ifelse(stand_age %in% c("41 - 60 jaar", "61 - 80 jaar", "ongelijkjarig"), 41, 20))),
+           Waarde = pmax(stand_age_numeric, blk_numeric, na.rm = TRUE),
     ) %>%
     select(record_id, Voorwaarde, Waarde)
 
@@ -1038,7 +1038,7 @@ get_voorwaarden_cd <- function(data_path, data_path_extravar, record_ids = NULL)
            Eenheid = "%") %>%
     rename(record_id = recording_givid)
 
-  voorwaarde_msa <- get_msa(data_path_extra_var, data_type = "mhq_cd", record_ids) %>%
+  voorwaarde_msa <- get_msa(data_path_extravar, data_type = "mhq_cd", record_ids) %>%
     select(record_id, type, msa_area_ha) %>%
     mutate(Voorwaarde = "MSA",
            Indicator = "minimum structuurareaal",
@@ -2146,17 +2146,30 @@ calc_status_indicator <- function(lsvi_indicator){
 
 ########################################################################################################
 
-model_binomial_trend <- function(analyseset) {
+model_binomial_trend <- function(analyseset, re_location = TRUE) {
 
-  model_iid_weight <- inla(formula = status ~ 0 + periode +
-                             f(point_code,
-                               model = "iid",
-                               hyper = list(theta = list(prior = "pc.prec", param = c(1, 0.05)))),
-                           family = "binomial",
-                           data = analyseset,
-                           weights = weight_scaled,
-                           control.compute = list(config = TRUE, waic = TRUE),
-                           control.predictor = list(compute = TRUE))
+  if (re_location) {
+
+    model_inla <- inla(formula = status ~ 0 + periode +
+                               f(point_code,
+                                 model = "iid",
+                                 hyper = list(theta = list(prior = "pc.prec", param = c(1, 0.05)))),
+                             family = "binomial",
+                             data = analyseset,
+                             weights = weight_scaled,
+                             control.compute = list(config = TRUE, waic = TRUE),
+                             control.predictor = list(compute = TRUE))
+
+  } else {
+
+    model_inla <- inla(formula = status ~ 0 + periode,
+                             family = "binomial",
+                             data = analyseset,
+                             weights = weight_scaled,
+                             control.compute = list(config = TRUE, waic = TRUE),
+                             control.predictor = list(compute = TRUE))
+
+  }
 
   fun = function(...) {
     c(plogis(periodec_1), plogis(periodec_2),
@@ -2165,7 +2178,7 @@ model_binomial_trend <- function(analyseset) {
 
   }
 
-  model_inla.samples <- inla.posterior.sample(1000, model_iid_weight)
+  model_inla.samples <- inla.posterior.sample(1000, model_inla)
 
   quantile_values <- c(0.025, 0.05, 0.20, 0.35,  0.65, 0.80, 0.95, 0.975)
 
@@ -2209,9 +2222,12 @@ model_binomial_trend <- function(analyseset) {
 
 }
 
-calc_trend_habitat <- function(lsvi_habitat){
+calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
 
   results <- NULL
+
+  lsvi_habitat <- lsvi_habitat %>%
+    mutate(is_subtype = str_detect(type, "_"))
 
   for (ht in unique(lsvi_habitat$main_type)) {
 
@@ -2225,13 +2241,15 @@ calc_trend_habitat <- function(lsvi_habitat){
       summarise(year_min = min(year(date)),
                 year_max = max(year(date)))
 
-    result_ht <- model_binomial_trend(analyseset_ht) %>%
+    result_ht <- model_binomial_trend(analyseset_ht, re_location) %>%
       left_join(periode_ht, by = "periode") %>%
       mutate(type_resultaat = "Habitattype",
              n_obs = n_distinct(analyseset_ht$point_code),
              sbzh = "Binnen & Buiten",
              habitattype = ht,
-             habitatsubtype = str_c(unique(analyseset_ht$type), collapse = ";"))
+             habitatsubtype = ifelse(any(analyseset_ht$is_subtype),
+                                     str_c(unique(analyseset_ht$type), collapse = ";"),
+                                     NA))
 
     results <- results %>%
       bind_rows(result_ht)
@@ -2251,13 +2269,15 @@ calc_trend_habitat <- function(lsvi_habitat){
 
       if (nrow(analyseset_sac) >= 10) {
 
-        result_ht_sac <- model_binomial_trend(analyseset_sac) %>%
+        result_ht_sac <- model_binomial_trend(analyseset_sac, re_location) %>%
           left_join(periode_sac, by = c("periode")) %>%
           mutate(type_resultaat = "SBZH",
                  n_obs = n_distinct(analyseset_sac$point_code),
                  sbzh = ifelse(stratum, "Binnen", "Buiten"),
                  habitattype = ht,
-                 habitatsubtype = str_c(unique(analyseset_sac$type), collapse = ";"))
+                 habitatsubtype = ifelse(any(analyseset_ht$is_subtype),
+                                         str_c(unique(analyseset_ht$type), collapse = ";"),
+                                         NA))
 
         results <- results %>%
           bind_rows(result_ht_sac)
@@ -2265,35 +2285,39 @@ calc_trend_habitat <- function(lsvi_habitat){
       }
     }
 
-    for (stratum in unique(analyseset_ht$type)) {
+    if (any(analyseset_ht$is_subtype)) {
 
-      analyseset_type <- analyseset_ht %>%
-        filter(type == stratum) %>%
-        mutate(weight_scaled = weight/max(weight),
-               status = ifelse(status, 1, 0))
+      analyseset_ht <- analyseset_ht %>%
+        filter(is_subtype)
 
-      periode_type <- analyseset_type %>%
-        group_by(periode) %>%
-        summarise(year_min = min(year(date)),
-                  year_max = max(year(date))) %>%
-        ungroup()
+      for (stratum in unique(analyseset_ht$type)) {
 
-      if (nrow(analyseset_type) >= 10) {
+        analyseset_type <- analyseset_ht %>%
+          filter(type == stratum) %>%
+          mutate(weight_scaled = weight/max(weight),
+                 status = ifelse(status, 1, 0))
 
-        result_type <- model_binomial_trend(analyseset_type) %>%
-          left_join(periode_type, by = c("periode")) %>%
-          mutate(type_resultaat = "Habitatsubtype",
-                 n_obs = n_distinct(analyseset_type$point_code),
-                 sbzh = "Binnen & Buiten",
-                 habitattype = ht,
-                 habitatsubtype = stratum)
+        periode_type <- analyseset_type %>%
+          group_by(periode) %>%
+          summarise(year_min = min(year(date)),
+                    year_max = max(year(date))) %>%
+          ungroup()
 
-        results <- results %>%
-          bind_rows(result_type)
+        if (nrow(analyseset_type) >= 10) {
 
+          result_type <- model_binomial_trend(analyseset_type, re_location) %>%
+            left_join(periode_type, by = c("periode")) %>%
+            mutate(type_resultaat = "Habitatsubtype",
+                   n_obs = n_distinct(analyseset_type$point_code),
+                   sbzh = "Binnen & Buiten",
+                   habitattype = ht,
+                   habitatsubtype = stratum)
+
+          results <- results %>%
+            bind_rows(result_type)
+        }
+        }
       }
-    }
-
   }
 
   results_round <- results %>%
@@ -2310,6 +2334,9 @@ calc_trend_habitat <- function(lsvi_habitat){
 
 calc_index_hq_habitat <- function(lsvi_habitat) {
 
+  lsvi_habitat <- lsvi_habitat %>%
+    mutate(is_subtype = str_detect(type, "_"))
+
   index_hq_main_type <- lsvi_habitat %>%
     group_by(main_type) %>%
     summarise(index_hq_mean = sum(index_mean_ind * weight) / sum(weight),
@@ -2317,16 +2344,18 @@ calc_index_hq_habitat <- function(lsvi_habitat) {
               v2 = sum((weight) ^ 2),
               var_wgt = sum(weight * (index_mean_ind - index_hq_mean) ^ 2) / (v1 - (v2 / v1)),
               n = n(),
-              habitatsubtype = str_c(unique(type), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
-    mutate(se =sqrt(var_wgt) /sqrt(n),
+    mutate(se = sqrt(var_wgt) / sqrt(n),
            index_hq_llci_0.95 = index_hq_mean - 1.96 * se,
            index_hq_ulci_0.95 = index_hq_mean + 1.96 * se
     ) %>%
     mutate(type_resultaat = "Habitattype",
            sbzh = "Binnen & Buiten")
 
-  index_hq_sbzh <- lsvi_habitat%>%
+  index_hq_sbzh <- lsvi_habitat %>%
     mutate(sbzh = ifelse(in_sac, "Binnen", "Buiten")) %>%
     group_by(main_type, sbzh) %>%
     summarise(index_hq_mean = sum(index_mean_ind * weight) / sum(weight),
@@ -2334,33 +2363,46 @@ calc_index_hq_habitat <- function(lsvi_habitat) {
               v2 = sum((weight) ^ 2),
               var_wgt = sum(weight * (index_mean_ind - index_hq_mean) ^ 2) / (v1 - (v2 / v1)),
               n = n(),
-              habitatsubtype = str_c(unique(type), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
-    mutate(se = sqrt(var_wgt) /sqrt(n),
+    mutate(se = sqrt(var_wgt) / sqrt(n),
            index_hq_llci_0.95 = index_hq_mean - 1.96 * se,
            index_hq_ulci_0.95 = index_hq_mean + 1.96 * se
     ) %>%
     mutate(type_resultaat = "SBZH")
 
-  index_hq_subtype <- lsvi_habitat %>%
-    group_by(main_type, type) %>%
-    summarise(index_hq_mean = sum(index_mean_ind * weight) / sum(weight),
-              v1 = sum(weight),
-              v2 = sum((weight) ^ 2),
-              var_wgt = sum(weight * (index_mean_ind - index_hq_mean) ^ 2) / (v1 - (v2 / v1)),
-              n = n()) %>%
-    ungroup() %>%
-    mutate(se = ifelse(n >= 6, sqrt(var_wgt) /sqrt(n), NA),
-           index_hq_llci_0.95 = index_hq_mean - 1.96 * se,
-           index_hq_ulci_0.95 = index_hq_mean + 1.96 * se
-    ) %>%
-    mutate(type_resultaat = "Habitatsubtype",
-           sbzh = "Binnen & Buiten") %>%
-    rename(habitatsubtype = type)
-
   index_hq <- index_hq_main_type %>%
-    bind_rows(index_hq_sbzh) %>%
-    bind_rows(index_hq_subtype) %>%
+    bind_rows(index_hq_sbzh)
+
+  if (any(lsvi_habitat$is_subtype)) {
+
+    lsvi_habitat_subtype <- lsvi_habitat %>%
+      filter(is_subtype)
+
+    index_hq_subtype <- lsvi_habitat_subtype %>%
+      group_by(main_type, type) %>%
+      summarise(index_hq_mean = sum(index_mean_ind * weight) / sum(weight),
+                v1 = sum(weight),
+                v2 = sum((weight) ^ 2),
+                var_wgt = sum(weight * (index_mean_ind - index_hq_mean) ^ 2) / (v1 - (v2 / v1)),
+                n = n()) %>%
+      ungroup() %>%
+      mutate(se = ifelse(n >= 6, sqrt(var_wgt) / sqrt(n), NA),
+             index_hq_llci_0.95 = index_hq_mean - 1.96 * se,
+             index_hq_ulci_0.95 = index_hq_mean + 1.96 * se
+      ) %>%
+      mutate(type_resultaat = "Habitatsubtype",
+             sbzh = "Binnen & Buiten") %>%
+      rename(habitatsubtype = type)
+
+    index_hq <- index_hq %>%
+      bind_rows(index_hq_subtype)
+
+  }
+
+  index_hq <- index_hq %>%
     mutate(schaal = "Vlaanderen",
            versie = "Versie 3") %>%
     select(schaal, versie, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, n_obs = n, index_hq_mean, index_hq_llci_0.95, index_hq_ulci_0.95)
@@ -2370,6 +2412,9 @@ calc_index_hq_habitat <- function(lsvi_habitat) {
 
 calc_diff_index_hq_habitat <- function(lsvi_habitat_wide, threshold = 0.1) {
 
+  lsvi_habitat_wide <- lsvi_habitat_wide %>%
+    mutate(is_subtype = str_detect(type_c_2, "_"))
+
   index_hq_main_type <- lsvi_habitat_wide %>%
     group_by(main_type) %>%
     summarise(index_diff_mean = sum(diff_index * weight_c_2) / sum(weight_c_2),
@@ -2378,9 +2423,11 @@ calc_diff_index_hq_habitat <- function(lsvi_habitat_wide, threshold = 0.1) {
               v2 = sum((weight_c_2) ^ 2),
               var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
               n = n(),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type_c_2), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
-    mutate(se =sqrt(var_wgt) /sqrt(n),
+    mutate(se = sqrt(var_wgt) / sqrt(n),
            index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
            index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
            index_diff_rel = round(index_diff_mean / index_mean_c1, 3),
@@ -2398,9 +2445,11 @@ calc_diff_index_hq_habitat <- function(lsvi_habitat_wide, threshold = 0.1) {
               v2 = sum((weight_c_2) ^ 2),
               var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
               n = n(),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type_c_2), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
-    mutate(se =sqrt(var_wgt) /sqrt(n),
+    mutate(se = sqrt(var_wgt) / sqrt(n),
            index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
            index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
            index_diff_rel = round(index_diff_mean / index_mean_c1 , 3),
@@ -2409,30 +2458,38 @@ calc_diff_index_hq_habitat <- function(lsvi_habitat_wide, threshold = 0.1) {
     ) %>%
     mutate(type_resultaat = "SBZH")
 
-  index_hq_subtype <- lsvi_habitat_wide %>%
-    filter(type_c_1 == type_c_2) %>%
-    group_by(main_type, type_c_2) %>%
-    summarise(index_diff_mean = sum(diff_index * weight_c_2) / sum(weight_c_2),
-              index_mean_c1 = sum(index_mean_ind_c_1 * weight_c_1) / sum(weight_c_1),
-              v1 = sum(weight_c_2),
-              v2 = sum((weight_c_2) ^ 2),
-              var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
-              n = n()) %>%
-    ungroup() %>%
-    mutate(se = ifelse(n >= 5, sqrt(var_wgt) /sqrt(n), NA),
-           index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
-           index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
-           index_diff_rel = round(index_diff_mean / index_mean_c1 , 3),
-           index_diff_rel_llci_0.95 =  round(index_diff_llci_0.95 / index_mean_c1 , 3),
-           index_diff_rel_ulci_0.95 =  round(index_diff_ulci_0.95 / index_mean_c1 , 3)
-    ) %>%
-    mutate(type_resultaat = "Habitatsubtype",
-           sbzh = "Binnen & Buiten") %>%
-    rename(habitatsubtype = type_c_2)
-
   index_hq <- index_hq_main_type %>%
-    bind_rows(index_hq_sbzh) %>%
-    bind_rows(index_hq_subtype) %>%
+    bind_rows(index_hq_sbzh)
+
+  if (any(lsvi_habitat_wide$is_subtype)) {
+
+    index_hq_subtype <- lsvi_habitat_wide %>%
+      filter(is_subtype) %>%
+      filter(type_c_1 == type_c_2) %>%
+      group_by(main_type, type_c_2) %>%
+      summarise(index_diff_mean = sum(diff_index * weight_c_2) / sum(weight_c_2),
+                index_mean_c1 = sum(index_mean_ind_c_1 * weight_c_1) / sum(weight_c_1),
+                v1 = sum(weight_c_2),
+                v2 = sum((weight_c_2) ^ 2),
+                var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
+                n = n()) %>%
+      ungroup() %>%
+      mutate(se = ifelse(n >= 5, sqrt(var_wgt) / sqrt(n), NA),
+             index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
+             index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
+             index_diff_rel = round(index_diff_mean / index_mean_c1 , 3),
+             index_diff_rel_llci_0.95 =  round(index_diff_llci_0.95 / index_mean_c1 , 3),
+             index_diff_rel_ulci_0.95 =  round(index_diff_ulci_0.95 / index_mean_c1 , 3)
+      ) %>%
+      mutate(type_resultaat = "Habitatsubtype",
+             sbzh = "Binnen & Buiten") %>%
+      rename(habitatsubtype = type_c_2)
+
+    index_hq <- index_hq %>%
+      bind_rows(index_hq_subtype)
+  }
+
+  index_hq <- index_hq %>%
     mutate(schaal = "Vlaanderen") %>%
     select(schaal, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, index_diff_mean, index_diff_llci_0.95, index_diff_ulci_0.95, index_diff_rel, index_diff_rel_llci_0.95, index_diff_rel_ulci_0.95)
 
@@ -2448,8 +2505,10 @@ calc_diff_index_hq_habitat <- function(lsvi_habitat_wide, threshold = 0.1) {
 
 }
 
-
 calc_diff_index_hq_indicator <- function(lsvi_indicator_wide, threshold = 0.25) {
+
+  lsvi_indicator_wide <- lsvi_indicator_wide %>%
+    mutate(is_subtype = str_detect(type_c_2, "_"))
 
   index_ind_main_type <- lsvi_indicator_wide %>%
     filter(!is.na(diff_index)) %>%
@@ -2460,9 +2519,11 @@ calc_diff_index_hq_indicator <- function(lsvi_indicator_wide, threshold = 0.25) 
               v2 = sum((weight_c_2) ^ 2),
               var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
               n = n(),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type_c_2), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
-    mutate(se = sqrt(var_wgt) /sqrt(n),
+    mutate(se = sqrt(var_wgt) / sqrt(n),
            index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
            index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
            index_diff_rel = round(index_diff_mean / index_mean_c1, 3),
@@ -2481,9 +2542,11 @@ calc_diff_index_hq_indicator <- function(lsvi_indicator_wide, threshold = 0.25) 
               v2 = sum((weight_c_2) ^ 2),
               var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
               n = n(),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type_c_2), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
-    mutate(se =sqrt(var_wgt) /sqrt(n),
+    mutate(se =sqrt(var_wgt) / sqrt(n),
            index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
            index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
            index_diff_rel = round(index_diff_mean / index_mean_c1 , 3),
@@ -2492,37 +2555,42 @@ calc_diff_index_hq_indicator <- function(lsvi_indicator_wide, threshold = 0.25) 
     ) %>%
     mutate(type_resultaat = "sbzh")
 
-  index_ind_subtype <- lsvi_indicator_wide %>%
-    filter(!is.na(diff_index)) %>%
-    filter(type_c_1 == type_c_2) %>%
-    group_by(main_type, type_c_2, criterium, indicator, belang) %>%
-    summarise(index_diff_mean = sum(diff_index * weight_c_2) / sum(weight_c_2),
-              index_mean_c1 = sum(index_c_1 * weight_c_1) / sum(weight_c_1),
-              v1 = sum(weight_c_2),
-              v2 = sum((weight_c_2) ^ 2),
-              var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
-              n = n()) %>%
-    ungroup() %>%
-    mutate(se = ifelse(n > 5, sqrt(var_wgt) /sqrt(n), NA),
-           index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
-           index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
-           index_diff_rel = round(index_diff_mean / index_mean_c1 , 3),
-           index_diff_rel_llci_0.95 =  round(index_diff_llci_0.95 / index_mean_c1 , 3),
-           index_diff_rel_ulci_0.95 =  round(index_diff_ulci_0.95 / index_mean_c1 , 3)
-    ) %>%
-    mutate(type_resultaat = "Habitatsubtype",
-           sbzh = "Binnen & Buiten") %>%
-    rename(habitatsubtype = type_c_2)
-
   index_ind <- index_ind_main_type %>%
-    bind_rows(index_ind_sbzh) %>%
-    bind_rows(index_ind_subtype) %>%
+    bind_rows(index_ind_sbzh)
+
+  if (any(lsvi_indicator_wide$is_subtype)) {
+
+    index_ind_subtype <- lsvi_indicator_wide %>%
+      filter(is_subtype) %>%
+      filter(!is.na(diff_index)) %>%
+      filter(type_c_1 == type_c_2) %>%
+      group_by(main_type, type_c_2, criterium, indicator, belang) %>%
+      summarise(index_diff_mean = sum(diff_index * weight_c_2) / sum(weight_c_2),
+                index_mean_c1 = sum(index_c_1 * weight_c_1) / sum(weight_c_1),
+                v1 = sum(weight_c_2),
+                v2 = sum((weight_c_2) ^ 2),
+                var_wgt = sum(weight_c_2 * (diff_index - index_diff_mean) ^ 2) / (v1 - (v2 / v1)),
+                n = n()) %>%
+      ungroup() %>%
+      mutate(se = ifelse(n > 5, sqrt(var_wgt) / sqrt(n), NA),
+             index_diff_llci_0.95 = index_diff_mean - 1.96 * se,
+             index_diff_ulci_0.95 = index_diff_mean + 1.96 * se,
+             index_diff_rel = round(index_diff_mean / index_mean_c1 , 3),
+             index_diff_rel_llci_0.95 =  round(index_diff_llci_0.95 / index_mean_c1 , 3),
+             index_diff_rel_ulci_0.95 =  round(index_diff_ulci_0.95 / index_mean_c1 , 3)
+      ) %>%
+      mutate(type_resultaat = "Habitatsubtype",
+             sbzh = "Binnen & Buiten") %>%
+      rename(habitatsubtype = type_c_2)
+
+    index_ind <- index_ind %>%
+      bind_rows(index_ind_subtype)
+  }
+
+  index_ind <- index_ind %>%
     mutate(schaal = "Vlaanderen") %>%
     rename(sbzh = sbzh) %>%
     select(schaal, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, criterium, indicator, belang, index_diff_mean, index_diff_llci_0.95, index_diff_ulci_0.95)
-    # mutate(trend = ifelse(index_diff_llci_0.95 > 0 & index_diff_mean >= 0.1, "verbetering",
-    #                       ifelse(index_diff_ulci_0.95 < 0 & index_diff_mean <= -0.1, "verslechtering",
-    #                              ifelse(index_diff_llci_0.95 >= -0.25 & index_diff_ulci_0.95 <= 0.25, "stabiel", "onzeker"))))
 
   index_ind_klasse <- index_ind %>%
     filter(!is.na(index_diff_llci_0.95)) %>%
@@ -2536,9 +2604,12 @@ calc_diff_index_hq_indicator <- function(lsvi_indicator_wide, threshold = 0.25) 
 
 }
 
-calc_trend_indicator <- function(lsvi_indicatoren){
+calc_trend_indicator <- function(lsvi_indicatoren, re_location = TRUE){
 
   results <- NULL
+
+  lsvi_indicatoren <- lsvi_indicatoren %>%
+    mutate(is_subtype = str_detect(type, "_"))
 
   overz_indicatoren <- lsvi_indicatoren %>%
     distinct(main_type, criterium, indicator, belang) %>%
@@ -2561,13 +2632,15 @@ calc_trend_indicator <- function(lsvi_indicatoren){
       analyseset_ht_ind <- analyseset_ht %>%
         filter(indicator == ind)
 
-      result_ht_ind <- model_binomial_trend(analyseset_ht_ind) %>%
+      result_ht_ind <- model_binomial_trend(analyseset_ht_ind, re_location) %>%
         left_join(periode_ht, by = "periode") %>%
         mutate(type_resultaat = "Habitattype",
                n_obs = n_distinct(analyseset_ht_ind$point_code),
                sbzh = "Binnen & Buiten",
                habitattype = ht,
-               habitatsubtype = str_c(unique(analyseset_ht$type), collapse = ";"),
+               habitatsubtype = ifelse(any(analyseset_ht$is_subtype),
+                                       str_c(unique(analyseset_ht$type), collapse = ";"),
+                                       NA),
                indicator = ind)
 
       results <- results %>%
@@ -2610,6 +2683,9 @@ mcnemar <- function(status1, status2, weight = NULL, correct = FALSE, use_weight
 
 calc_mcnemar <- function(remeasured_wide) {
 
+  remeasured_wide <- remeasured_wide %>%
+    mutate(is_subtype = str_detect(type_c_2, "_"))
+
   mcnemar_main_type <- remeasured_wide %>%
     group_by(main_type) %>%
     mutate(weight_scaled = weight_c_2 * n() / sum(weight_c_2)) %>%
@@ -2617,11 +2693,14 @@ calc_mcnemar <- function(remeasured_wide) {
     group_by(main_type) %>%
     summarise(diff_prop_netto_wgt = (sum(status_c_2 * weight_c_2) - sum(status_c_1 * weight_c_2)) / sum(weight_c_2),
               mcnemar_p_value = mcnemar(status_c_1, status_c_2, weight_scaled, use_weights = TRUE),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type_c_2), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
     mutate(effect = ifelse(mcnemar_p_value <= 0.05,
-                           ifelse(diff_prop_netto_wgt > 0, "+", "-"),
-                           ""),
+                           ifelse(diff_prop_netto_wgt > 0, "toename habitatkwaliteit", "afname habitatkwaliteit"),
+                           "geen significant verschil"),
+           effect = ifelse(is.na(effect), "geen significant verschil", effect),
            type_resultaat = "Habitattype",
            sbzh = "Binnen & Buiten")
 
@@ -2632,31 +2711,45 @@ calc_mcnemar <- function(remeasured_wide) {
     group_by(main_type, sbzh) %>%
     summarise(diff_prop_netto_wgt = (sum(status_c_2 * weight_c_2) - sum(status_c_1 * weight_c_2)) / sum(weight_c_2),
               mcnemar_p_value = mcnemar(status_c_1, status_c_2, weight_scaled, use_weights = TRUE),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                     str_c(unique(type_c_2), collapse = "; "),
+                                     NA)) %>%
     ungroup() %>%
     mutate(effect = ifelse(mcnemar_p_value <= 0.05,
-                           ifelse(diff_prop_netto_wgt > 0, "+", "-"),
-                           ""),
+                           ifelse(diff_prop_netto_wgt > 0, "toename habitatkwaliteit", "afname habitatkwaliteit"),
+                           "geen significant verschil"),
+           effect = ifelse(is.na(effect), "geen significant verschil", effect),
            type_resultaat = "SBZH")
 
-  mcnemar_subtype <- remeasured_wide %>%
-    group_by(type_c_2) %>%
-    mutate(weight_scaled = weight_c_2 * n() / sum(weight_c_2)) %>%
-    ungroup() %>%
-    group_by(main_type, type_c_2) %>%
-    summarise(diff_prop_netto_wgt = (sum(status_c_2 * weight_c_2) - sum(status_c_1 * weight_c_2)) / sum(weight_c_2),
-              mcnemar_p_value = mcnemar(status_c_1, status_c_2, weight_scaled, use_weights = TRUE)) %>%
-    ungroup() %>%
-    mutate(effect = ifelse(mcnemar_p_value <= 0.05,
-                           ifelse(diff_prop_netto_wgt > 0, "+", "-"),
-                           "")) %>%
-    rename(habitatsubtype = type_c_2) %>%
-    mutate(type_resultaat = "Habitatsubtype",
-           sbzh = "Binnen & Buiten")
-
   mcnemar_result <- mcnemar_main_type %>%
-    bind_rows(mcnemar_sbzh) %>%
-    bind_rows(mcnemar_subtype) %>%
+    bind_rows(mcnemar_sbzh)
+
+  if (any(remeasured_wide$is_subtype)) {
+
+    remeasured_wide <- remeasured_wide %>%
+      filter(is_subtype)
+
+    mcnemar_subtype <- remeasured_wide %>%
+      group_by(type_c_2) %>%
+      mutate(weight_scaled = weight_c_2 * n() / sum(weight_c_2)) %>%
+      ungroup() %>%
+      group_by(main_type, type_c_2) %>%
+      summarise(diff_prop_netto_wgt = (sum(status_c_2 * weight_c_2) - sum(status_c_1 * weight_c_2)) / sum(weight_c_2),
+                mcnemar_p_value = mcnemar(status_c_1, status_c_2, weight_scaled, use_weights = TRUE)) %>%
+      ungroup() %>%
+      mutate(effect = ifelse(mcnemar_p_value <= 0.05,
+                             ifelse(diff_prop_netto_wgt > 0, "toename habitatkwaliteit", "afname habitatkwaliteit"),
+                             "geen significant verschil"),
+             effect = ifelse(is.na(effect), "geen significant verschil", effect)) %>%
+      rename(habitatsubtype = type_c_2) %>%
+      mutate(type_resultaat = "Habitatsubtype",
+             sbzh = "Binnen & Buiten")
+
+    mcnemar_result <- mcnemar_result %>%
+      bind_rows(mcnemar_subtype)
+  }
+
+  mcnemar_result <- mcnemar_result %>%
     mutate(schaal = "Vlaanderen", versie = "Versie 3") %>%
     select(schaal, versie, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, everything())
 
@@ -2664,6 +2757,9 @@ calc_mcnemar <- function(remeasured_wide) {
 }
 
 calc_trend_local <- function(remeasured_wide) {
+
+  remeasured_wide <- remeasured_wide %>%
+    mutate(is_subtype = str_detect(type_c_2, "_"))
 
   trend_local_main_type <- remeasured_wide %>%
     mutate(trend_local = str_c(ifelse(status_c_1, "gunstig", "ongunstig"), " - ", ifelse(status_c_2, "gunstig", "ongunstig"))) %>%
@@ -2674,7 +2770,9 @@ calc_trend_local <- function(remeasured_wide) {
     group_by(main_type, n, trend_local) %>%
     summarise(n = n(),
               n_adj = sum(weight_scaled),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type_c_2), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
     mutate(type_resultaat = "Habitattype",
            sbzh = "Binnen & Buiten")
@@ -2688,27 +2786,38 @@ calc_trend_local <- function(remeasured_wide) {
     group_by(main_type, sbzh, n, trend_local) %>%
     summarise(n = n(),
               n_adj = sum(weight_scaled),
-              habitatsubtype = str_c(unique(type_c_2), collapse = "; ")) %>%
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type_c_2), collapse = "; "),
+                                      NA)) %>%
     ungroup() %>%
     mutate(type_resultaat = "SBZH")
 
-  trend_local_subtype <- remeasured_wide %>%
-    mutate(trend_local = str_c(ifelse(status_c_1, "gunstig", "ongunstig"), " - ", ifelse(status_c_2, "gunstig", "ongunstig"))) %>%
-    group_by(main_type, type_c_2) %>%
-    mutate(weight_scaled = weight_c_2 * n() / sum(weight_c_2),
-           n = n()) %>%
-    ungroup() %>%
-    group_by(main_type, type_c_2, n, trend_local) %>%
-    summarise(n = n(),
-              n_adj = sum(weight_scaled)) %>%
-    ungroup() %>%
-    rename(habitatsubtype = type_c_2) %>%
-    mutate(type_resultaat = "Habitatsubtype",
-           sbzh = "Binnen & Buiten")
-
   trend_local <- trend_local_main_type %>%
-    bind_rows(trend_local_sbzh) %>%
-    bind_rows(trend_local_subtype) %>%
+    bind_rows(trend_local_sbzh)
+
+  if (any(remeasured_wide$is_subtype)) {
+
+    trend_local_subtype <- remeasured_wide %>%
+      filter(is_subtype) %>%
+      mutate(trend_local = str_c(ifelse(status_c_1, "gunstig", "ongunstig"), " - ", ifelse(status_c_2, "gunstig", "ongunstig"))) %>%
+      group_by(main_type, type_c_2) %>%
+      mutate(weight_scaled = weight_c_2 * n() / sum(weight_c_2),
+             n = n()) %>%
+      ungroup() %>%
+      group_by(main_type, type_c_2, n, trend_local) %>%
+      summarise(n = n(),
+                n_adj = sum(weight_scaled)) %>%
+      ungroup() %>%
+      rename(habitatsubtype = type_c_2) %>%
+      mutate(type_resultaat = "Habitatsubtype",
+             sbzh = "Binnen & Buiten")
+
+    trend_local <- trend_local %>%
+      bind_rows(trend_local_subtype)
+
+  }
+
+  trend_local <- trend_local %>%
     mutate(schaal = "Vlaanderen", versie = "Versie 3") %>%
     select(schaal, versie, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, trend_local, n, n_adj)
 

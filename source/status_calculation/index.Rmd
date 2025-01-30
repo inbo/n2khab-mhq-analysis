@@ -11,7 +11,7 @@ output:
   bookdown::html_document2:
     keep_md: TRUE
     toc: TRUE
-    toc_depth: 2
+    toc_depth: 3
     toc_float:
       collapsed: FALSE
       smooth_scroll: FALSE
@@ -21,7 +21,9 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 
 library(tidyverse)
 library(INBOtheme)
@@ -38,6 +40,8 @@ library(ggh4x)
 library(scales)
 library(INLA)
 library(effectclass)
+library(inlatools)
+library(openssl)
 
 conflicted::conflicts_prefer(dplyr::filter)
 
