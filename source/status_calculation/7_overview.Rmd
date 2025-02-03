@@ -44,10 +44,65 @@ status_flanders %>%
 ```
 
 ```{r}
+
+beoordeling_colors <- c("Gunstig" = inbo_lichtgroen, "Ongunstig" = inbo_rood, "Onbekend" = inbo_grijs)
+
+status_flanders %>%
+  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
+  filter(sbzh != "Buiten") %>%
+  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
+         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
+  ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling)) +
+  geom_point(size = 3, show.legend = TRUE) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0.75, linetype = 2) +
+  geom_hline(yintercept = 0.9, linetype = 2) +
+  facet_wrap(~ schaal) +
+  labs(x = "Habitattype", y = "Aandeel habitat in gunstige staat", colour = "Beoordeling") +
+  scale_color_manual(values = beoordeling_colors, drop = FALSE) +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+  coord_flip() +
+  theme(legend.position = "bottom")
+```
+
+
+```{r}
 trend_flanders %>%
   arrange(habitattype) %>%
   select(-parameter) %>%
   datatable(rownames = FALSE,
             filter = "top",
             caption = "Absoluut verschil in aandeel habitat met gunstige toestand  (\\%)")
+```
+```{r, fig.height=7}
+
+klasse_color <- c(rev(traffic_palette(7)), "grey65", "grey35", "grey50") %>%
+  setNames(
+    c("++", "+", "+~", "~", "-~", "-", "--", "?+", "?-", "?")
+  ) 
+klasse_color[4] <- inbo_steun_blauw
+
+trend_flanders %>%
+  filter(habitattype != "9110") %>%
+  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+  filter(sbzh != "Buiten") %>%
+  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
+  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
+         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
+  ggplot(aes(x = habitattype, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100, label = klasse, colour = klasse)) +
+  geom_point(size = 7) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
+  geom_text(size = 4, colour = "white") +
+  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+       x = "Habitattype") +
+  facet_wrap(~ schaal) +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.60,0.60)) +
+  scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  labs(colour = "Interpretatie trend") +
+  coord_flip() +
+  theme(legend.position = "bottom")
 ```

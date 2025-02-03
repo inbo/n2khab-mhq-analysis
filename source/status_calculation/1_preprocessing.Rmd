@@ -233,22 +233,38 @@ if (!all.equal(hashes$md5_lokaal, hashes$md5_zenodo)) {
 ```
 ```{r}
 
-ws_hab_area <- watersurfaces_hab_polygons %>%
-  filter(!is.na(polygon_id_habitatmap)) %>%
+watersurfaces <- read_watersurfaces()
+
+# area for all measured ws
+ws_area <- watersurfaces %>%
+  filter(polygon_id %in% measurements_ws_all$code_watersurfaces) %>%
   st_join(sac, largest = TRUE) %>%
   mutate(area_ha = drop_units(st_area(geom) / 10000)) %>%
   st_drop_geometry() %>%
   mutate(in_sac = !is.na(sac_code),
          area_class = ifelse(area_ha <= 1, "area <= 1 ha",
                             ifelse(area_ha <= 5, "1 ha < area <= 5 ha",
-                                  ifelse(area_ha <= 50, "5 ha < area < 50 ha", "5 ha < area < 50 ha")))) %>%
-  select(polygon_id, in_sac, area_ha, area_class) 
+                                  ifelse(area_ha <= 50, "5 ha < area < 50 ha", ">= 50 ha")))) %>%
+  select(code_watersurfaces = polygon_id, in_sac, area_ha, area_class) 
+
+# area for all ws in watersurfaces_hab
+ws_hab_area <- watersurfaces_hab_polygons %>%
+  filter(!is.na(polygon_id_ws)) %>%
+  st_join(sac, largest = TRUE) %>%
+  mutate(area_ha = drop_units(st_area(geom) / 10000)) %>%
+  st_drop_geometry() %>%
+  mutate(in_sac = !is.na(sac_code),
+         area_class = ifelse(area_ha <= 1, "area <= 1 ha",
+                            ifelse(area_ha <= 5, "1 ha < area <= 5 ha",
+                                  ifelse(area_ha <= 50, "5 ha < area < 50 ha",  ">= 50 ha")))) %>%
+  select(code_watersurfaces = polygon_id, in_sac, area_ha, area_class) 
 
 type_ws_area <- watersurfaces_hab_table %>%
-  inner_join(ws_hab_area, by = "polygon_id") %>%
+  rename(code_watersurfaces = polygon_id) %>%
+  inner_join(ws_hab_area, by = "code_watersurfaces") %>%
   group_by(type, in_sac, area_class) %>%
-  summarise(area_ha = sum(area_ha),
-            n_ws = n_distinct(polygon_id)) %>%
+  summarise(area_flanders_ha = sum(area_ha),
+            n_ws_flanders = n_distinct(code_watersurfaces)) %>%
   ungroup()
 
 ```
