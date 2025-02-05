@@ -2,8 +2,8 @@
 
 ```{r}
 
-habcat <- data.frame(habcat_code = c("gr_bm", "cd", "hs_id", "fs"),
-                     habcat_name = c("grassland_marsh", "coastal_dunes", "heath_inland_dunes", "forests"))
+habcat <- data.frame(habcat_code = c("gr_bm", "cd", "hs_id", "fs", "sw"),
+                     habcat_name = c("grassland_marsh", "coastal_dunes", "heath_inland_dunes", "forests", "standing_water"))
 
 status_flanders <- NULL
 trend_flanders <- NULL
@@ -34,6 +34,69 @@ write_csv2(status_flanders, "../output/status_habitatkwaliteit.csv")
 write_csv2(trend_flanders, "../output/trend_habitatkwaliteit.csv")
 ```
 
+```{r}
+area_flanders_2190 <- type_area %>%
+  filter(type %in% c("2190_mp", "2190_overig")) %>%
+  mutate(main_type = str_sub(type, 1, 4)) %>%
+  group_by(main_type) %>%
+  summarise(area_ha = sum(area_ha)) %>%
+  ungroup()
+
+area_sac_2190 <- type_area %>%
+  filter(type %in% c("2190_mp", "2190_overig")) %>%
+  mutate(main_type = str_sub(type, 1, 4)) %>%
+  filter(in_sac) %>%
+  group_by(main_type) %>%
+  summarise(area_ha = sum(area_ha)) %>%
+  ungroup()
+
+status_flanders_2190 <- status_flanders %>%
+  filter(habitattype == "2190", type_resultaat == "Habitattype") %>%
+  mutate(opp_uitspraak_ha = ifelse(habitatsubtype == "2190_mp; 2190_overig", area_flanders_2190$area_ha, opp_uitspraak_ha)) %>%
+  group_by(versie, schaal, type_resultaat, habitattype, sbzh) %>%
+  summarise(habitatsubtype = str_c(habitatsubtype, collapse = "; "),
+            n_obs = sum(n_obs),
+            aandeel_gunstig = sum(aandeel_gunstig * opp_uitspraak_ha) / sum(opp_uitspraak_ha),
+            aandeel_gunstig_llci = sum(aandeel_gunstig_llci * opp_uitspraak_ha) / sum(opp_uitspraak_ha),
+            aandeel_gunstig_ulci = sum(aandeel_gunstig_ulci * opp_uitspraak_ha) / sum(opp_uitspraak_ha)) %>%
+  ungroup() %>%
+   mutate(beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                ifelse(aandeel_gunstig_llci >= 75, "Gunstig",
+                                       ifelse(aandeel_gunstig_ulci < 75, "Ongunstig",
+                                              "Onbekend"))),
+          beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend")))
+
+status_sac_2190 <- status_flanders %>%
+  filter(habitattype == "2190", type_resultaat == "SBZH") %>%
+  mutate(opp_uitspraak_ha = ifelse(habitatsubtype == "2190_mp; 2190_overig", area_sac_2190$area_ha, opp_uitspraak_ha)) %>%
+  group_by(versie, schaal, type_resultaat, habitattype, sbzh) %>%
+  summarise(habitatsubtype = str_c(habitatsubtype, collapse = "; "),
+            n_obs = sum(n_obs),
+            aandeel_gunstig = sum(aandeel_gunstig * opp_uitspraak_ha) / sum(opp_uitspraak_ha),
+            aandeel_gunstig_llci = sum(aandeel_gunstig_llci * opp_uitspraak_ha) / sum(opp_uitspraak_ha),
+            aandeel_gunstig_ulci = sum(aandeel_gunstig_ulci * opp_uitspraak_ha) / sum(opp_uitspraak_ha)) %>%
+  ungroup() %>%
+   mutate(beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                ifelse(aandeel_gunstig_llci >= 75, "Gunstig",
+                                       ifelse(aandeel_gunstig_ulci < 75, "Ongunstig",
+                                              "Onbekend"))),
+          beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend")))
+
+status_flanders <- status_flanders %>%
+  mutate(habitattype = ifelse(habitattype == "2190" & type_resultaat %in% c("Habitattype", "SBZH"),
+                              ifelse(habitatsubtype == "2190_mp; 2190_overig", "2190_terr", "2190_aq"),
+                              habitattype)) %>%
+  bind_rows(status_flanders_2190, status_sac_2190)
+```
+
+```{r}
+write_csv2(status_flanders, "../output/status_habitatkwaliteit.csv")
+
+trend_flanders %>%
+  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+write_csv2("../output/trend_habitatkwaliteit.csv")
+```
+
 
 ```{r}
 status_flanders %>%
@@ -43,17 +106,19 @@ status_flanders %>%
             caption = "Aandeel habitat met gunstige toestand (\\%)")
 ```
 
-```{r}
+```{r, fig.height=7, fig.width=8}
 
 beoordeling_colors <- c("Gunstig" = inbo_lichtgroen, "Ongunstig" = inbo_rood, "Onbekend" = inbo_grijs)
 
 status_flanders %>%
+  mutate(beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend"))) %>%
+  filter(!habitattype %in% c("2190_terr", "2190_aq")) %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
   filter(sbzh != "Buiten") %>%
   mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
          schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
   ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling)) +
-  geom_point(size = 3, show.legend = TRUE) +
+  geom_point(size = 5, show.legend = TRUE) +
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0.75, linetype = 2) +
   geom_hline(yintercept = 0.9, linetype = 2) +
@@ -64,6 +129,8 @@ status_flanders %>%
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
   coord_flip() +
   theme(legend.position = "bottom")
+
+ggsave("../output/toestand_habitatkwaliteit_2025-02-05.png")
 ```
 
 
@@ -75,7 +142,7 @@ trend_flanders %>%
             filter = "top",
             caption = "Absoluut verschil in aandeel habitat met gunstige toestand  (\\%)")
 ```
-```{r, fig.height=7}
+```{r, fig.height=7, fig.width=8}
 
 klasse_color <- c(rev(traffic_palette(7)), "grey65", "grey35", "grey50") %>%
   setNames(
@@ -100,9 +167,12 @@ trend_flanders %>%
        x = "Habitattype") +
   facet_wrap(~ schaal) +
   scale_x_discrete(limits = rev) +
-  scale_y_continuous(labels = scales::percent, limits = c(-0.60,0.60)) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.80,0.80)) +
   scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   labs(colour = "Interpretatie trend") +
   coord_flip() +
   theme(legend.position = "bottom")
+
+ggsave("../output/trend_habitatkwaliteit.png")
+
 ```

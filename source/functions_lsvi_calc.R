@@ -2489,17 +2489,29 @@ calc_diff_index_hq_habitat <- function(lsvi_habitat_wide, threshold = 0.1) {
       bind_rows(index_hq_subtype)
   }
 
-  index_hq <- index_hq %>%
-    mutate(schaal = "Vlaanderen") %>%
-    select(schaal, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, index_diff_mean, index_diff_llci_0.95, index_diff_ulci_0.95, index_diff_rel, index_diff_rel_llci_0.95, index_diff_rel_ulci_0.95)
+  if (any(is.na(index_hq$index_diff_llci_0.95))) {
 
-  index_hq_klasse <- index_hq %>%
-    filter(!is.na(index_diff_llci_0.95)) %>%
-    mutate(klasse = classification(lcl = index_diff_llci_0.95, ucl = index_diff_ulci_0.95, threshold = threshold))
+    index_hq <- index_hq %>%
+      mutate(schaal = "Vlaanderen") %>%
+      select(schaal, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, index_diff_mean, index_diff_llci_0.95, index_diff_ulci_0.95, index_diff_rel, index_diff_rel_llci_0.95, index_diff_rel_ulci_0.95)
 
-  index_hq <- index_hq %>%
-    filter(is.na(index_diff_llci_0.95)) %>%
-    bind_rows(index_hq_klasse)
+    index_hq_klasse <- index_hq %>%
+      filter(!is.na(index_diff_llci_0.95)) %>%
+      mutate(klasse = classification(lcl = index_diff_llci_0.95, ucl = index_diff_ulci_0.95, threshold = threshold))
+
+    index_hq <- index_hq %>%
+      filter(is.na(index_diff_llci_0.95)) %>%
+      bind_rows(index_hq_klasse)
+
+  } else {
+
+    index_hq <- index_hq %>%
+      mutate(schaal = "Vlaanderen") %>%
+      select(schaal, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, index_diff_mean, index_diff_llci_0.95, index_diff_ulci_0.95, index_diff_rel, index_diff_rel_llci_0.95, index_diff_rel_ulci_0.95) %>%
+      mutate(klasse = classification(lcl = index_diff_llci_0.95, ucl = index_diff_ulci_0.95, threshold = threshold))
+
+  }
+
 
   return(index_hq)
 

@@ -50,7 +50,7 @@ check_missing_mhq_admin <- data_habitat %>%
 
 mhq_su <- mhq_measurements_habcat %>%
   filter(!is.na(id)) %>%
-  filter(type == type_analysis) %>%
+  filter(type == type_analysis | (type_analysis == "2190_mp" & type == "2190_overig")) %>%
   mutate(main_type = str_sub(type, 1, 4)) %>%
   left_join(strata, by = "point_code")
 

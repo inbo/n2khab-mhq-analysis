@@ -259,11 +259,44 @@ ws_hab_area <- watersurfaces_hab_polygons %>%
                                   ifelse(area_ha <= 50, "5 ha < area < 50 ha",  ">= 50 ha")))) %>%
   select(code_watersurfaces = polygon_id, in_sac, area_ha, area_class) 
 
-type_ws_area <- watersurfaces_hab_table %>%
+ws_hab_type <- watersurfaces_hab_table %>%
   rename(code_watersurfaces = polygon_id) %>%
+  mutate(type = ifelse(type == "3130", "3130_aom", as.character(type))) %>%
+  distinct(code_watersurfaces, type) %>%
   inner_join(ws_hab_area, by = "code_watersurfaces") %>%
+  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present), by = c("code_watersurfaces", "type" )) %>%  
+  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, any_habitat), by = c("code_watersurfaces")) %>%
+  filter(is.na(is_present) #water surface is not visited but type is present according to watersurface_hab_v6
+         | is_present) %>% #water surface is visited and type was observed
+  filter(is.na(any_habitat) | any_habitat) %>% # exclude any_habitat = FALSE, meaning that is was observed that no habitat type was present
+  filter(!code_watersurfaces %in% c("WVLBRU0368", "WVLBRU0369", "WVLBRU0374")) #manual correction TO BE INCLUDED IN MHQ ASSESSMENTS TABLE
+
+type_ws_area <- ws_hab_type %>%
+  group_by(code_watersurfaces) %>%
+  mutate(area_ha_type = area_ha / n_distinct(type)) %>%
+  ungroup() %>%
   group_by(type, in_sac, area_class) %>%
-  summarise(area_flanders_ha = sum(area_ha),
+  summarise(area_flanders_ha = sum(area_ha_type),
+            n_ws_flanders = n_distinct(code_watersurfaces)) %>%
+  ungroup()
+
+check <- type_ws_area %>%
+  mutate(main_type = str_sub(type, 1 , 4)) %>%
+  group_by(type) %>%
+  summarise(check_area = sum(area_flanders_ha))
+
+main_type_ws_area <- watersurfaces_hab_table %>%
+  rename(code_watersurfaces = polygon_id) %>%
+  mutate(type = ifelse(type == "3130", "3130_aom", as.character(type))) %>%
+  distinct(code_watersurfaces, type) %>%
+  inner_join(ws_hab_area, by = "code_watersurfaces") %>%
+  group_by(code_watersurfaces) %>%
+  mutate(area_ha_type = area_ha / n_distinct(type)) %>%
+  ungroup() %>%
+  mutate(main_type = str_sub(type, 1 , 4)) %>%
+  group_by(main_type) %>%
+  summarise(area_flanders_ha = sum(area_ha_type),
+            check = sum(area_ha),
             n_ws_flanders = n_distinct(code_watersurfaces)) %>%
   ungroup()
 
