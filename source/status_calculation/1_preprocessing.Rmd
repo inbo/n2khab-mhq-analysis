@@ -118,6 +118,7 @@ type_area <- habmap_stdized_terr$habitatmap_terr_types %>%
 
 
 ```
+
 # Preprocessing aquatic - standing water
 
 ```{r}
@@ -168,7 +169,7 @@ measurements_ws_all <- measurements_ws %>%
 ```
 
 De opnames bevatten ook waterlichamen die niet geselecteerd werden in kader van mhq.
-We selecteren de waterlichamen die werden opgemeten in de eerste meetcyclus en de waterlichamen die werden geselecteerd voro de tweede meetcyclus. 
+We selecteren de waterlichamen die werden opgemeten in de eerste meetcyclus en de waterlichamen die werden geselecteerd voor de tweede meetcyclus. 
 
 ```{r }
 
@@ -300,5 +301,50 @@ main_type_ws_area <- watersurfaces_hab_table %>%
             n_ws_flanders = n_distinct(code_watersurfaces)) %>%
   ungroup()
 
+```
+
+
+# Preprocessing aquatic - streams
+
+```{r}
+measurements_streams <- read_vc(file = "HT3260_header", root = path_lsvi_aq)
+
+path_admin_mhq <- file.path(fileman_up("n2khab-sample-admin"), "data/mhq_streams/rapportage2025")
+
+mhq_streams_samplingframe <- read_vc(file = "samplingframe_habitatstreams_v1_7", path_admin_mhq)
+
+mhq_streams_refpoints <- read_vc(file = "mhq_streams_refpoints", root =  path_admin_mhq)
+
+mhq_streams_refpoints_val <- read_vc(file = "mhq_streams_refpoints_validity", root =  path_admin_mhq)
+
+watersurfaces_code_orig <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "raw/3260_steekproefkader/code_locaties_3260.csv"))
+
+watersurfaces_code <- watersurfaces_code_orig %>%
+  select(location = Veldcode, segment_id = sampling_unit_code, sbzh = SBZ, source_c2 = `bron+datum_cyclus2`, source_c1 = `bron+datum_cyclus1`)
+```
+
+
+```{r}
+measurements_streams_mhq <- measurements_streams %>%
+  left_join(watersurfaces_code, by = "location") %>%
+  mutate(sbzh = ifelse(location == "KaaBe_01a", "outside", sbzh),
+         segment_id = ifelse(location == "KaaBe_01a", "1_4_772_a", segment_id)) %>% #vervanglocatie
+  filter(!is.na(segment_id)) %>%
+  filter(type_observed == "3260", suitable_mhq)
+```
+
+```{r}
+sampleframe_3260_orig <- st_read(file.path(fileman_up("n2khab-mhq-data"), "raw/3260_steekproefkader/BasisbestandSteekproefvernieuwingHT3260_SBZ.shp"))
+
+sampleframe_3260 <- sampleframe_3260_orig %>%
+  mutate(length_m = drop_units(st_length(geometry))) %>%
+  mutate(in_sac = ifelse(SBZ %in% c("intersect SBZ", "sa"), TRUE,
+                         ifelse(SBZ == "buiten", FALSE, NA))) %>%
+  st_drop_geometry() 
+
+length_3260 <- sampleframe_3260 %>%
+  group_by(in_sac) %>%
+  summarise(length_flanders_km = sum(length_m) / 1000) %>%
+  ungroup()
 ```
 
