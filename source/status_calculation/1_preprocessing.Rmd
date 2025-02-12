@@ -47,9 +47,17 @@ strata <- mhq_refpoints %>%
 
 path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_terr")
 coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_mhq_terr)
+coordinates_1330_da <- read_vc(file = "coordinates_moneos_1330_da", root = path_mhq_terr)
 
 strata_91E0_sf <- coordinates_91E0_sf %>%
   st_as_sf(coords = c("x", "y"), crs = 31370) %>%
+  st_join(sac) %>%
+  mutate(in_sac = !is.na(sac_code)) %>%
+  select(link_mhq = plot_id, sac_code, in_sac) %>%
+  st_drop_geometry()
+
+strata_1330_da <- coordinates_1330_da %>%
+  st_as_sf(coords = c("x_mean", "y_mean"), crs = 31370) %>%
   st_join(sac) %>%
   mutate(in_sac = !is.na(sac_code)) %>%
   select(link_mhq = plot_id, sac_code, in_sac) %>%

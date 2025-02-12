@@ -1,8 +1,8 @@
-# Graslandhabitats en moerassen
+# Graslandhabitats, moerassen en schorren
 
 ```{r}
 types_habcat <- read_types() %>%
-  filter(typeclass %in% c("GR", "BMF"))
+  filter(typeclass %in% c("GR", "BMF", "CH"))
 
 habcat_name <- "grassland_marsh"
 habcat_code <- "gr_bm"
@@ -22,9 +22,31 @@ lsvi_indicator <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_
 data_habitat <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_name, "/input")),
                              file = str_c("data_habitat_", habcat_code))
 
+#moneos --> 1330_da
+lsvi_detail_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/result"),
+                             file = "lsvi_detail_moneos")
+
+lsvi_globaal_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/result"),
+                             file = "lsvi_globaal_moneos")
+
+lsvi_indicator_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/result"),
+                             file = "lsvi_indicator_moneos")
+
+data_habitat_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/input"),
+                             file = "data_habitat_moneos")
+
 data_habitat <- data_habitat %>%
+  bind_rows(data_habitat_moneos) %>%
   select(id = ID, type_analysis = Habitattype, date, link_mhq)
 
+lsvi_detail <- lsvi_detail %>%
+  bind_rows(lsvi_detail_moneos)
+
+lsvi_indicator <- lsvi_indicator %>%
+  bind_rows(lsvi_indicator_moneos)
+
+lsvi_globaal <- lsvi_globaal %>%
+  bind_rows(lsvi_globaal_moneos)
 ```
 
 
@@ -58,6 +80,17 @@ check <- mhq_su %>%
   group_by(point_code, date) %>%
   filter(n() > 1)
  
+moneos_su <- data_habitat_moneos %>%
+  select(id = ID, type_analysis = Habitattype, date, link_mhq) %>%
+  filter(type_analysis == "1330_da") %>%
+  mutate(type = type_analysis,
+         main_type = "1330",
+         point_code = link_mhq) %>%
+  left_join(strata_1330_da, by = "link_mhq")
+
+mhq_su <- mhq_su %>%
+  bind_rows(moneos_su)
+
 mhq_su_recent <- mhq_su %>%
   group_by(point_code) %>%
   filter(date == max(date)) %>%
@@ -86,8 +119,11 @@ mhq_su_remeasured <- mhq_su %>%
   mutate(n_measured = n_distinct(date),
          n_check = n(),
          periode = ifelse(date == min(date), "c_1",
-                          ifelse(date == max(date), "c_2", "extra"))) %>%
-  ungroup()
+                          ifelse(date == max(date), "c_2", "extra")),
+         diff_years = max(year(date)) - min(year(date))) %>%
+  filter(!(type == "1330_da" & (min(year(date)) >= 2019))) %>%
+  ungroup() %>%
+  filter(diff_years > 3)
 
 weights_remeasured <- mhq_su_remeasured %>%
   group_by(main_type, periode) %>%
@@ -280,7 +316,8 @@ lsvi_indicator_recent <- lsvi_indicator %>%
   inner_join(select(mhq_su_recent, id, weight, date), by = "id") 
 
 status_indicatoren <- calc_status_indicator(lsvi_indicator_recent) %>%
-  mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type)))
+  mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type))) %>%
+  arrange(habitattype)
   
 status_indicatoren %>%
   write_vc(root = output_path,
@@ -316,13 +353,22 @@ for (habt in unique(status_indicatoren$habitattype)) {
    scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   theme(strip.text.y = element_text(angle = 0), 
         legend.position = "bottom",) +
-  scale_y_continuous(labels = scales::percent)
+  scale_y_continuous(labels = scales::percent, limits = c(0,1))
   
   plot(plot_ht)
   
 }
 
 ```
+
+```{r}
+lsvi_indicator_recent %>%
+  filter(type == "1330_da") %>%
+  filter(belang == "zb") %>%
+  ggplot(aes(y = indicator, x = point_code, colour = status_indicator))+
+  geom_point()
+```
+
 
 ## Trend Vlaanderen
 
@@ -460,7 +506,7 @@ lsvi_habitat_trend %>%
        x = "Habitattype") +
   facet_wrap(~ schaal) +
   scale_x_discrete(limits = rev) +
-  scale_y_continuous(labels = scales::percent, limits = c(-0.60,0.60)) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.70,0.70)) +
   scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   labs(colour = "Interpretatie trend") +
   coord_flip() +
@@ -725,7 +771,7 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
        x = "Habitattype") +
   facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
   scale_x_discrete(limits = rev) +
-  scale_y_continuous(labels = scales::percent, limits = c(-0.90,0.90)) +
+  scale_y_continuous(labels = scales::percent, limits = c(-1,1)) +
   scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   labs(colour = "Interpretatie trend") +
   coord_flip() +
@@ -789,7 +835,7 @@ for (habt in unique(diff_index_ind$habitattype)) {
        shape = "Belang indicator") + 
   geom_hline(yintercept = 0, linetype = "dashed")  +
   geom_hline(yintercept = c(-0.1,0.1), linetype = 3) +
-    lims(y = c(-1, 1)) +
+    lims(y = c(-1.5, 1.5)) +
   scale_color_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   theme(strip.text.y = element_text(angle = 0), 
         legend.position = "bottom", legend.box = "vertical") +
