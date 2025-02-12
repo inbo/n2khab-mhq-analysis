@@ -807,7 +807,7 @@ get_voorwaarden_fs <- function(data_path,
 ###############################################################################
 
 get_voorwaarden_1330_da <- function(data_path,
-                                    plot_ids = NULL) {
+                                    record_ids = NULL) {
 
   vw_1330_da <- geefInvoervereisten(Versie = "Versie 3",
                                     Habitattype = "1330_da") %>%
@@ -823,8 +823,10 @@ get_voorwaarden_1330_da <- function(data_path,
     inner_join(vw_1330_da, by = "Voorwaarde") %>%
     mutate(Waarde = ifelse(Waarde == "ja", "1",
                            ifelse(Waarde == "nee", "0", Waarde)),
-           Waarde = as.numeric(Waarde)) %>%
-    select(plot_id, Criterium, Indicator ,
+           Waarde = as.numeric(Waarde),
+           periode = ifelse(year(date) == 2018, 1,
+                            ifelse(year(date) == 2024, 2, NA))) %>%
+    select(plot_id, periode, Criterium, Indicator ,
            Voorwaarde, Waarde, Type, Eenheid, Invoertype)
 
   site_qualifier <- get_site_qualifier(data_path)
@@ -834,25 +836,25 @@ get_voorwaarden_1330_da <- function(data_path,
 
   site_qualifier <- site_qualifier %>%
     left_join(header, by = "record_id") %>%
-    mutate(ID = str_c(plot_id, "_", vague_date_begin)) %>%
-    select(record_id, ID, plot_id)
+    mutate(ID = str_c(plot_id, "_", vague_date_begin),
+           periode = ifelse(year(vague_date_begin) <= 2018, 1, 2)) %>%
+    select(record_id, ID, plot_id, periode)
 
-  #voorlopig nog maar een meting voorwaarde per plot
   voorwaarden <- voorwaarden %>%
-    left_join(site_qualifier, by = "plot_id")
+    left_join(site_qualifier, by = c("plot_id", "periode"))
 
-  if (is.null(plot_ids)) {
+  if (is.null(record_ids)) {
 
     result <- voorwaarden
 
   } else {
 
     result <- voorwaarden %>%
-      filter(plot_id %in% plot_ids)
+      filter(record_id %in% record_ids)
 
   }
 
-  return(voorwaarden)
+  return(result)
 }
 
 
@@ -1686,41 +1688,47 @@ calc_volume_tree <- function(trees, n_input, path_vol_parameters) {
 
 write_lsvi_results <- function(lsvi_object, path, suffix = "") {
 
-  lsvi_detail <- lsvi_object$Resultaat_detail %>%
-  mutate(plot_type = ifelse(is.na(plot_type), "square", plot_type),
-         waarde_numeric = round(as.numeric(Waarde), 4),
-         Verschilscore = round(Verschilscore, 4)) %>%
-  select(id = ID, survey, record_id_square, record_id_circle, type_observed, type_analysis = Habitattype, Criterium, Indicator, Belang, Voorwaarde,
-         plot_type, Waarde, waarde_numeric, Referentiewaarde, Status_voorwaarde, TheoretischMaximum, Verschilscore)
+  lsvi_detail <- lsvi_object$Resultaat_detail
 
   colnames(lsvi_detail) <- str_to_lower(colnames(lsvi_detail))
+
+  lsvi_detail <- lsvi_detail %>%
+  mutate(plot_type = ifelse(is.na(plot_type), "square", plot_type),
+         waarde_numeric = round(as.numeric(waarde), 4),
+         Verschilscore = round(verschilscore, 4)) %>%
+  select(id, survey, record_id_square, record_id_circle, type_observed, type_analysis = habitattype, criterium, indicator, belang, voorwaarde,
+         plot_type, waarde, waarde_numeric, referentiewaarde, status_voorwaarde, theoretischmaximum, verschilscore)
 
   write_vc(lsvi_detail, file = str_c("lsvi_detail", suffix), root = path,
            sorting = c("id", "type_analysis", "voorwaarde"), strict = FALSE)
 
-  lsvi_indicator <- lsvi_object$Resultaat_indicator %>%
-    mutate(Verschilscore = round(Verschilscore, 4)) %>%
-    select(ID, type_analysis = Habitattype, Criterium, Indicator, Belang, Status_indicator, Verschilscore)
+  lsvi_indicator <- lsvi_object$Resultaat_indicator
 
   colnames(lsvi_indicator) <- str_to_lower(colnames(lsvi_indicator))
+
+  lsvi_indicator <- lsvi_indicator %>%
+    mutate(verschilscore = round(verschilscore, 4)) %>%
+    select(id, type_analysis = habitattype, criterium, indicator, belang, status_indicator, verschilscore)
 
   write_vc(lsvi_indicator, file = str_c("lsvi_indicator", suffix), root = path,
            sorting = c("id", "type_analysis", "indicator"), strict = FALSE)
 
-  lsvi_criterium <- lsvi_object$Resultaat_criterium %>%
-    select(-Versie, -Kwaliteitsniveau) %>%
-    rename(type_analysis = Habitattype)
+  lsvi_criterium <- lsvi_object$Resultaat_criterium
 
   colnames(lsvi_criterium) <- str_to_lower(colnames(lsvi_criterium))
+
+  lsvi_criterium <- lsvi_criterium %>%
+    rename(type_analysis = habitattype)
 
   write_vc(lsvi_criterium,  file = str_c("lsvi_criterium", suffix), root = path,
            sorting = c("id", "type_analysis", "criterium"), strict = FALSE)
 
-  lsvi_globaal <- lsvi_object$Resultaat_globaal %>%
-    select(-Versie, -Kwaliteitsniveau) %>%
-    rename(type_analysis = Habitattype)
+  lsvi_globaal <- lsvi_object$Resultaat_globaal
 
   colnames(lsvi_globaal) <- str_to_lower(colnames(lsvi_globaal))
+
+  lsvi_globaal <- lsvi_globaal %>%
+    rename(type_analysis = habitattype)
 
   write_vc(lsvi_globaal, file = str_c("lsvi_globaal", suffix), root = path, strict = FALSE,
            sorting = c("id", "type_analysis"))

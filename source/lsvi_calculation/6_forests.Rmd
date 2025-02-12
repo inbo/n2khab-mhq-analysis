@@ -678,50 +678,57 @@ missing_belang %>%
 ### Manuele correctie
 
 ```{r}
-
-correct_status_globaal <- lsvi_fs$Resultaat_indicator %>%
-  filter(!is.na(Status_indicator)) %>%
+# verschilscore: maximum 1
+resultaat_indicator <- lsvi_fs$Resultaat_indicator %>%
+  mutate(Verschilscore = round(pmin(Verschilscore, 1), 4),
+         doelbereik = round(pmin(Verschilscore, 0) + 1, 4)) %>%
   filter(Indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
-  filter(Indicator != "hoeveelheid dik dood hout") %>%
+  filter(Indicator != "hoeveelheid dik dood hout")
+
+resultaat_detail <- lsvi_fs$Resultaat_detail %>%
+  mutate(Verschilscore = round(pmin(Verschilscore, 1), 4),
+         doelbereik = round(pmin(Verschilscore, 0) + 1, 4))
+
+correct_status_globaal <- resultaat_indicator %>%
+  filter(!is.na(Status_indicator)) %>%
   group_by(ID, Criterium) %>%
   mutate(weight_crit = 1/n()) %>%
   ungroup() %>%
-  group_by(Versie, Kwaliteitsniveau, ID, Habitattype) %>%
+  group_by(ID, Habitattype) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
-            aandeel_gunstig = n_gunstig / n_ind * 100,
-            status_habitatvlek =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
-            index_mean_ind = round(mean(Verschilscore), 6),
-            index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 6)
+            aandeel_gunstig = round(n_gunstig / n_ind * 100, 4),
+            status =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
+            index_mean_ind = round(mean(Verschilscore), 4),
+            index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 4),
+            doelbereik_mean_ind = round(mean(doelbereik), 4)
             ) %>%
   ungroup() %>%
   mutate(Aggregatiemethode = "RapportageHR") %>%
-  select(Versie, Kwaliteitsniveau, ID, Habitattype, Aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, Status = status_habitatvlek, index_mean_ind, index_mean_crit)
+  select(ID, Habitattype, Aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, status, index_mean_ind, index_mean_crit, doelbereik_mean_ind)
 
-correct_status_criterium <- lsvi_fs$Resultaat_indicator %>%
+correct_status_criterium <- resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
-  filter(Indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
-  filter(Indicator != "hoeveelheid dik dood hout") %>%
-  group_by(Versie, Kwaliteitsniveau, ID, Habitattype, Criterium) %>%
+  group_by(ID, Habitattype, Criterium) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
-            aandeel_gunstig = n_gunstig / n_ind * 100,
+            aandeel_gunstig = round(n_gunstig / n_ind * 100, 4),
             status_criterium =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
-            index_mean_ind = round(mean(Verschilscore), 6)
+            index_mean_ind = round(mean(Verschilscore), 4),
+            doelbereik_mean_ind = round(mean(doelbereik), 4)
             ) %>%
   ungroup() %>%
   mutate(Aggregatiemethode = "RapportageHR") %>%
-  select(Versie, Kwaliteitsniveau, ID, Habitattype, Aggregatiemethode, Criterium, n_zb_ongunstig, aandeel_gunstig, Status_criterium = status_criterium, index_mean_ind)
+  select(ID, Habitattype, Aggregatiemethode, Criterium, n_zb_ongunstig, aandeel_gunstig, status_criterium, index_mean_ind, doelbereik_mean_ind)
 
 lsvi_fs$Resultaat_globaal <- correct_status_globaal
 
 lsvi_fs$Resultaat_criterium <- correct_status_criterium
 
-lsvi_fs$Resultaat_indicator  <- lsvi_fs$Resultaat_indicator  %>%
-  filter(Indicator != "horizontale structuur - natuurlijke mozaiekstructuur") %>%
-  filter(Indicator != "hoeveelheid dik dood hout")
+lsvi_fs$Resultaat_indicator  <- resultaat_indicator 
+lsvi_fs$Resultaat_detail  <- resultaat_detail  
 
 check <- lsvi_fs$Resultaat_globaal
 
@@ -732,13 +739,13 @@ check <- lsvi_fs$Resultaat_globaal
 
 ```{r}
 lsvi_fs$Resultaat_globaal %>%
-  ggplot(aes(fill = Status, x = Habitattype)) +
+  ggplot(aes(fill = status, x = Habitattype)) +
   geom_bar()
 ```
 
 ```{r}
 lsvi_fs$Resultaat_criterium %>%
-  ggplot(aes(fill = Status_criterium, x = Criterium)) +
+  ggplot(aes(fill = status_criterium, x = Criterium)) +
   geom_bar() +
   facet_wrap(~Habitattype, scales = "free") +
   coord_flip()

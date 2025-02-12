@@ -44,11 +44,18 @@ data_habitat_moneos <- data_habitat %>%
          cover_target = sum(type_cover * is_type_target),
          Habitattype = type_observed) %>%
   ungroup() %>%
-  filter(is_type_target)
+  filter(is_type_target) %>%
+  filter(year(date) >= 2013) #voor oude opnames zijn er geen structuurmetingen
 
 overview <- data_habitat_moneos %>%
-  group_by(year(date), type_observed) %>%
-  summarise(n = n()) %>%
+  filter(type_observed == "1330_da") %>%
+  arrange(date) %>%
+  group_by(link_mhq) %>%
+  summarise(n_year = n_distinct(year(date)),
+            years = str_c(unique(year(date)), collapse = ";")) %>%
+  ungroup() %>%
+  group_by(years) %>%
+  summarise(n_pq = n_distinct(link_mhq)) %>%
   ungroup()
 
 data_voorwaarden_91E0_sf <- get_voorwaarden_91E0_sf(data_path = path_mhq_terr,
@@ -56,10 +63,10 @@ data_voorwaarden_91E0_sf <- get_voorwaarden_91E0_sf(data_path = path_mhq_terr,
                                           record_ids = data_habitat_moneos$record_id_square) %>%
   mutate(plot_type = "circle")
 
-data_voorwaarden_1330_da <- get_voorwaarden_1330_da(data_path = path_mhq_terr) %>%
+data_voorwaarden_1330_da <- get_voorwaarden_1330_da(data_path = path_mhq_terr,
+                                          record_ids = data_habitat_moneos$record_id_square) %>%
   filter(Indicator != "verzoeting") %>%
   mutate(plot_type = "schor")
-  
 
 data_voorwaarden_moneos <- data_voorwaarden_91E0_sf %>%
   bind_rows(data_voorwaarden_1330_da)
@@ -333,12 +340,12 @@ test_detail <- test$Resultaat_detail %>%
 
 ## LSVI-berekening
 
-```{r, eval = FALSE}
+```{r}
 
 input_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/moneos/input") 
 
 write_vc(data_voorwaarden_moneos , file = "data_voorwaarden_moneos ", root = input_path, 
-         sorting = c("ID", "Voorwaarde"))
+         sorting = c("ID", "Voorwaarde"), strict = FALSE)
 write_vc(data_habitat_moneos, file = "data_habitat_moneos ", root = input_path, 
          sorting = c("ID", "Habitattype"),strict = FALSE)
 write_vc(data_soorten_kenm_moneos, file = "data_soorten_kenm_moneos ", root = input_path, 
@@ -381,11 +388,17 @@ indicator_sleutelsoorten_1330_da <- voorwaarde_correct %>%
             Verschilscore = max(Verschilscore)) %>%
   ungroup()
 
-indicator_correct <- lsvi_moneos$Resultaat_indicator %>%
+resultaat_indicator <- lsvi_moneos$Resultaat_indicator %>%
   filter(!(Indicator == "sleutelsoorten" & Habitattype == "1330_da")) %>%
-  bind_rows(indicator_sleutelsoorten_1330_da)
+  bind_rows(indicator_sleutelsoorten_1330_da)  %>%
+  mutate(Verschilscore = round(pmin(Verschilscore, 1), 4),
+         doelbereik = round(pmin(Verschilscore, 0) + 1, 4))
 
-correct_status_globaal <- indicator_correct %>%
+resultaat_detail <- lsvi_moneos$Resultaat_detail %>%
+  mutate(Verschilscore = round(pmin(Verschilscore, 1), 4),
+         doelbereik = round(pmin(Verschilscore, 0) + 1, 4))
+  
+correct_status_globaal <- resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
   filter(Indicator != "hoeveelheid dik dood hout") %>%
   group_by(ID, Criterium) %>%
@@ -395,41 +408,38 @@ correct_status_globaal <- indicator_correct %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
-            aandeel_gunstig = n_gunstig / n_ind * 100,
-            status_habitatvlek =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
-            index_mean_ind = round(mean(Verschilscore), 6),
-            index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 6)
+            aandeel_gunstig = round(n_gunstig / n_ind * 100, 4),
+            status =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
+            index_mean_ind = round(mean(Verschilscore), 4),
+            index_mean_crit = round(sum(weight_crit * Verschilscore) / sum(weight_crit), 4),
+            doelbereik_mean_ind = round(mean(doelbereik), 4)
             ) %>%
   ungroup() %>%
-  select(ID, Habitattype, n_zb_ongunstig, aandeel_gunstig, status_habitatvlek, index_mean_ind, index_mean_crit)
+  mutate(Aggregatiemethode = "RapportageHR") %>%
+  select(ID, Habitattype, Aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, status, index_mean_ind, index_mean_crit, doelbereik_mean_ind)
 
-correct_status_criterium <- indicator_correct %>%
+correct_status_criterium <- resultaat_indicator %>%
   filter(!is.na(Status_indicator)) %>%
     filter(Indicator != "hoeveelheid dik dood hout") %>%
   group_by(ID, Habitattype, Criterium) %>%
   summarise(n_gunstig = sum(Status_indicator),
             n_ind = n_distinct(Indicator),
             n_zb_ongunstig = sum(Status_indicator == FALSE & Belang == "zb"),
-            aandeel_gunstig = n_gunstig / n_ind * 100,
+            aandeel_gunstig = round(n_gunstig / n_ind * 100, 4),
             status_criterium =  n_zb_ongunstig == 0 & aandeel_gunstig > 50,
-            index_mean_ind = round(mean(Verschilscore), 6)
+            index_mean_ind = round(mean(Verschilscore), 4),
+            doelbereik_mean_ind = round(mean(doelbereik), 4)
             ) %>%
   ungroup() %>%
-  select(ID, Habitattype, Criterium, n_zb_ongunstig, aandeel_gunstig, status_criterium, index_mean_ind)
+  mutate(Aggregatiemethode = "RapportageHR") %>%
+  select(ID, Habitattype, Aggregatiemethode, Criterium, n_zb_ongunstig, aandeel_gunstig, status_criterium, index_mean_ind, doelbereik_mean_ind)
 
-lsvi_moneos$Resultaat_globaal <- lsvi_moneos$Resultaat_globaal %>%
-  left_join(correct_status_globaal, by = c("ID", "Habitattype")) %>%
-  mutate(Status = status_habitatvlek) %>%
-  select(-status_habitatvlek)
+lsvi_moneos$Resultaat_globaal <- correct_status_globaal
 
-lsvi_moneos$Resultaat_criterium <- lsvi_moneos$Resultaat_criterium %>%
-  left_join(correct_status_criterium, by = c("ID", "Habitattype", "Criterium")) %>%
-  mutate(Status_criterium = status_criterium) %>%
-  select(-status_criterium)
+lsvi_moneos$Resultaat_criterium <- correct_status_criterium
 
-lsvi_moneos$Resultaat_detail <- voorwaarde_correct
-
-lsvi_moneos$Resultaat_indicator <- indicator_correct
+lsvi_moneos$Resultaat_indicator  <- resultaat_indicator 
+lsvi_moneos$Resultaat_detail  <- resultaat_detail  
 ```
 
 ### Check missing voorwaarden
@@ -471,13 +481,13 @@ missing_belang %>%
 
 ```{r}
 lsvi_moneos$Resultaat_globaal %>%
-  ggplot(aes(fill = Status, x = Habitattype)) +
+  ggplot(aes(fill = status, x = Habitattype)) +
   geom_bar()
 ```
 
 ```{r}
 lsvi_moneos$Resultaat_criterium %>%
-  ggplot(aes(fill = Status_criterium, x = Criterium)) +
+  ggplot(aes(fill = status_criterium, x = Criterium)) +
   geom_bar() +
   facet_wrap(~Habitattype) +
   coord_flip()
