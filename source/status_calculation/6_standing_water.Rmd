@@ -330,7 +330,7 @@ status_flanders <- status_flanders_habt %>%
          opp_totaal_ha = opp_uitspraak_ha + opp_onbekend_ha) %>%
   select(-area_gunstig_int_ha, -area_measured_int_ha, -area_unknown_ha, -area_sample_ha) %>%
   mutate(beoordeling = ifelse(habitattype == "3110", 
-                              ifelse(aandeel_gunstig < 75, "Ongunstig", "Gunstig"),
+                              ifelse(aandeel_gunstig < 75, "Niet goed", "Goed"),
                               as.character(beoordeling)))
 
 status_flanders %>%
@@ -343,7 +343,7 @@ status_flanders %>%
 
 ```{r}
 
-beoordeling_colors <- c("Gunstig" = inbo_lichtgroen, "Ongunstig" = inbo_rood, "Onbekend" = inbo_grijs)
+beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
 
 status_flanders %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
@@ -355,7 +355,7 @@ status_flanders %>%
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0.75, linetype = 2) +
   facet_wrap(~ schaal) +
-  labs(x = "Habitattype", y = "Aandeel habitat in gunstige staat", colour = "Beoordeling") +
+  labs(x = "Habitattype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
@@ -373,7 +373,7 @@ status_flanders %>%
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0.75, linetype = 2) +
   facet_wrap(~ habitattype, scales = "free") +
-  labs(x = "Habitatsubtype", y = "Aandeel habitat in gunstige staat", colour = "Beoordeling") +
+  labs(x = "Habitatsubtype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
@@ -584,7 +584,7 @@ lsvi_habitat_trend_corr %>%
   geom_hline(yintercept = 0, linetype = 2) +
   geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
   geom_text(size = 4, colour = "white") +
-  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand",
        x = "Habitattype") +
   facet_wrap(~ schaal) +
   scale_x_discrete(limits = rev) +

@@ -131,7 +131,8 @@ weights_remeasured <- mhq_su_remeasured %>%
            year_max = max(year(date))) %>%
   ungroup() %>%
   group_by(periode, year_min, year_max, main_type, type, in_sac) %>%
-  summarise(n_pq = n_distinct(point_code)) %>%
+  summarise(n_pq = n_distinct(point_code),
+            verschil_jaar = round(mean(diff_years), 1)) %>%
   ungroup()  %>%
   left_join(type_area, by = c("type", "in_sac")) %>%
   mutate(weight = area_ha / n_pq) %>%
@@ -222,7 +223,7 @@ status_flanders %>%
 
 ```{r}
 
-beoordeling_colors <- c("Gunstig" = inbo_lichtgroen, "Ongunstig" = inbo_rood, "Onbekend" = inbo_grijs)
+beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
 
 status_flanders %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
@@ -234,7 +235,7 @@ status_flanders %>%
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0.75, linetype = 2) +
   facet_wrap(~ schaal) +
-  labs(x = "Habitattype", y = "Aandeel habitat in gunstige staat", colour = "Beoordeling") +
+  labs(x = "Habitattype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
@@ -252,7 +253,7 @@ status_flanders %>%
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0.75, linetype = 2) +
   facet_wrap(~ habitattype, scales = "free") +
-  labs(x = "Habitatsubtype", y = "Aandeel habitat in gunstige staat", colour = "Beoordeling") +
+  labs(x = "Habitatsubtype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
@@ -292,6 +293,8 @@ index_hq %>%
   
 ```
 
+
+
 ```{r}
 index_hq %>%
   filter(type_resultaat %in% c("Habitatsubtype")) %>%
@@ -304,6 +307,7 @@ index_hq %>%
   facet_wrap(~ habitattype, scales = "free") +
   labs(x = "Habitatsubtype", y = "Gemiddelde habitatkwaliteitsindex") +
   lims(y = c(-1, 1)) +
+  scale_x_discrete(limits = rev) +
   coord_flip()
 ```
 
@@ -361,12 +365,16 @@ for (habt in unique(status_indicatoren$habitattype)) {
 
 ```
 
-```{r}
+```{r, fig.width=11, fig.height=4}
 lsvi_indicator_recent %>%
   filter(type == "1330_da") %>%
   filter(belang == "zb") %>%
-  ggplot(aes(y = indicator, x = point_code, colour = status_indicator))+
-  geom_point()
+  mutate(status_indicator = ifelse(status_indicator, "gunstig", "ongunstig")) %>%
+  ggplot(aes(y = indicator, x = point_code, fill = status_indicator))+
+  geom_tile() +
+  labs(x = "meetpunt") +
+  theme(axis.text.x = element_text(angle = 90, size = 7))
+
 ```
 
 
@@ -377,15 +385,18 @@ lsvi_indicator_recent %>%
 ```{r}
 mhq_su_remeasured %>%
   filter(periode != "extra") %>%
-  group_by(main_type, periode) %>%
+  group_by(main_type) %>%
+  mutate(verschil_jaar = round(mean(diff_years), 1)) %>%
+  ungroup() %>%
+  group_by(main_type, periode, verschil_jaar) %>%
   summarise(year_min = min(year(date)),
-            year_max = min(year_max)) %>%
+            year_max = max(year(date))) %>%
   ungroup() %>%
   mutate(periode_year = str_c(year_min, " - ", year_max)) %>%
-  select(habitattype = main_type, meetcyclus = periode, periode = periode_year) %>%
+  select(habitattype = main_type, verschil_jaar, meetcyclus = periode, periode = periode_year) %>%
   kable() %>%
   kable_styling() %>%
-  collapse_rows(columns = 1)
+  collapse_rows(columns = c(1, 2), target = 1)
 ```
 
 
@@ -393,7 +404,7 @@ mhq_su_remeasured %>%
 
 ```{r}
 lsvi_habitat_remeasured <- lsvi_habitat %>%
-  inner_join(select(mhq_su_remeasured, id, weight, date, periode), by = "id")
+  inner_join(select(mhq_su_remeasured, id, weight, date, periode, diff_years), by = "id")
 
 periodes <- lsvi_habitat_remeasured %>%
   group_by(main_type, periode) %>%
@@ -502,7 +513,7 @@ lsvi_habitat_trend %>%
   geom_hline(yintercept = 0, linetype = 2) +
   geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
   geom_text(size = 4, colour = "white") +
-  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand",
        x = "Habitattype") +
   facet_wrap(~ schaal) +
   scale_x_discrete(limits = rev) +

@@ -2079,10 +2079,10 @@ calc_status_habitat <- function(lsvi_habitat) {
            Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI,
            Aandeel_Gunstig_ULCI = AandeelGunstig_ULCI) %>%
     mutate(beoordeling = ifelse(is.na(Aandeel_Gunstig_ULCI), "Onbekend",
-                                ifelse(Aandeel_Gunstig_LLCI >= 75, "Gunstig",
-                                       ifelse(Aandeel_Gunstig_ULCI < 75, "Ongunstig",
+                                ifelse(Aandeel_Gunstig_LLCI >= 75, "Goed",
+                                       ifelse(Aandeel_Gunstig_ULCI < 75, "Niet goed",
                                               "Onbekend"))),
-          beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend")))
+          beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend")))
 
   colnames(status_flanders_tidy) <- str_to_lower(colnames(status_flanders_tidy))
 
@@ -2212,19 +2212,36 @@ model_binomial_trend <- function(analyseset, re_location = TRUE) {
     select(-prob, -l_u, -ci) %>%
     spread(key = type, value = qs)
 
+  meetperiode <- analyseset %>%
+    summarise(
+      jaar_min = min(year(date)),
+      jaar_max = max(year(date)),
+      verschil_jaar = round(mean(diff_years), 1)
+    )
+
+  cyclusperiode <- analyseset %>%
+    summarise(
+      jaar_min = min(year(date)),
+      jaar_max = max(year(date)),
+      .by = periode
+    )
+
   results_rel <- results %>%
     filter(parameter == "verschil_aandeel_gunstig_rel") %>%
-    mutate(klasse = classification(llci_0.95, ulci_0.95, threshold = c(-0.25, 0.33), reference = 0))
+    mutate(klasse = classification(llci_0.95, ulci_0.95, threshold = c(-0.25, 0.33), reference = 0)) %>%
+    bind_cols(meetperiode)
 
   results_abs <- results %>%
              filter(parameter == "verschil_aandeel_gunstig_abs") %>%
-             mutate(klasse = classification(llci_0.95, ulci_0.95, threshold = 0.10, reference = 0))
+             mutate(klasse = classification(llci_0.95, ulci_0.95, threshold = 0.10, reference = 0)) %>%
+    bind_cols(meetperiode)
 
   results <- results %>%
     filter(parameter == "aandeel_gunstig") %>%
+    left_join(cyclusperiode, by = "periode") %>%
     bind_rows(results_rel) %>%
     bind_rows(results_abs) %>%
-    select(periode, periode_ref, parameter, mean, llci_0.95, ulci_0.95, klasse)
+    select(periode, periode_ref, jaar_min, jaar_max, verschil_jaar, parameter, mean, llci_0.95, ulci_0.95, klasse)
 
   return(results)
 
@@ -2244,13 +2261,7 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
       mutate(weight_scaled = weight/max(weight),
              status = ifelse(status, 1, 0))
 
-    periode_ht <- analyseset_ht %>%
-      group_by(periode, main_type) %>%
-      summarise(year_min = min(year(date)),
-                year_max = max(year(date)))
-
     result_ht <- model_binomial_trend(analyseset_ht, re_location) %>%
-      left_join(periode_ht, by = "periode") %>%
       mutate(type_resultaat = "Habitattype",
              n_obs = n_distinct(analyseset_ht$point_code),
              sbzh = "Binnen & Buiten",
@@ -2269,16 +2280,9 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
         mutate(weight_scaled = weight/max(weight),
                status = ifelse(status, 1, 0))
 
-      periode_sac <- analyseset_sac %>%
-        group_by(periode) %>%
-        summarise(year_min = min(year(date)),
-                  year_max = max(year(date))) %>%
-        ungroup()
-
       if (nrow(analyseset_sac) >= 10) {
 
         result_ht_sac <- model_binomial_trend(analyseset_sac, re_location) %>%
-          left_join(periode_sac, by = c("periode")) %>%
           mutate(type_resultaat = "SBZH",
                  n_obs = n_distinct(analyseset_sac$point_code),
                  sbzh = ifelse(stratum, "Binnen", "Buiten"),
@@ -2305,16 +2309,9 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
           mutate(weight_scaled = weight/max(weight),
                  status = ifelse(status, 1, 0))
 
-        periode_type <- analyseset_type %>%
-          group_by(periode) %>%
-          summarise(year_min = min(year(date)),
-                    year_max = max(year(date))) %>%
-          ungroup()
-
         if (nrow(analyseset_type) >= 10) {
 
           result_type <- model_binomial_trend(analyseset_type, re_location) %>%
-            left_join(periode_type, by = c("periode")) %>%
             mutate(type_resultaat = "Habitatsubtype",
                    n_obs = n_distinct(analyseset_type$point_code),
                    sbzh = "Binnen & Buiten",
@@ -2334,7 +2331,7 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
            ulci_0.95 = ifelse(mean > 100000000 , NA, round(ulci_0.95 * 100, digits = 2)),
            schaal = "Vlaanderen",
            versie = "Versie 3") %>%
-    select(versie, schaal, periode, year_min, year_max, type_resultaat, habitattype, sbzh, habitatsubtype, n_obs, parameter, mean, llci_0.95, ulci_0.95, klasse)
+    select(versie, schaal, periode, periode_ref, jaar_min, jaar_max, verschil_jaar, type_resultaat, habitattype, sbzh, habitatsubtype, n_obs, parameter, mean, llci_0.95, ulci_0.95, klasse)
 
   return(results_round)
 }
@@ -2416,6 +2413,84 @@ calc_index_hq_habitat <- function(lsvi_habitat) {
     select(schaal, versie, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, n_obs = n, index_hq_mean, index_hq_llci_0.95, index_hq_ulci_0.95)
 
   return(index_hq)
+}
+
+calc_doelbereik_hq_habitat <- function(lsvi_habitat) {
+
+  lsvi_habitat <- lsvi_habitat %>%
+    mutate(is_subtype = str_detect(type, "_"))
+
+  doelbereik_hq_main_type <- lsvi_habitat %>%
+    group_by(main_type) %>%
+    summarise(doelbereik_hq_mean = sum(doelbereik_mean_ind* weight) / sum(weight),
+              v1 = sum(weight),
+              v2 = sum((weight) ^ 2),
+              var_wgt = sum(weight * (doelbereik_mean_ind- doelbereik_hq_mean) ^ 2) / (v1 - (v2 / v1)),
+              n = n(),
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type), collapse = "; "),
+                                      NA)) %>%
+    ungroup() %>%
+    mutate(se = sqrt(var_wgt) / sqrt(n),
+           doelbereik_hq_llci_0.95 = doelbereik_hq_mean - 1.96 * se,
+           doelbereik_hq_ulci_0.95 = doelbereik_hq_mean + 1.96 * se
+    ) %>%
+    mutate(type_resultaat = "Habitattype",
+           sbzh = "Binnen & Buiten")
+
+  doelbereik_hq_sbzh <- lsvi_habitat %>%
+    mutate(sbzh = ifelse(in_sac, "Binnen", "Buiten")) %>%
+    group_by(main_type, sbzh) %>%
+    summarise(doelbereik_hq_mean = sum(doelbereik_mean_ind* weight) / sum(weight),
+              v1 = sum(weight),
+              v2 = sum((weight) ^ 2),
+              var_wgt = sum(weight * (doelbereik_mean_ind- doelbereik_hq_mean) ^ 2) / (v1 - (v2 / v1)),
+              n = n(),
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type), collapse = "; "),
+                                      NA)) %>%
+    ungroup() %>%
+    mutate(se = sqrt(var_wgt) / sqrt(n),
+           doelbereik_hq_llci_0.95 = doelbereik_hq_mean - 1.96 * se,
+           doelbereik_hq_ulci_0.95 = doelbereik_hq_mean + 1.96 * se
+    ) %>%
+    mutate(type_resultaat = "SBZH")
+
+  doelbereik_hq <- doelbereik_hq_main_type %>%
+    bind_rows(doelbereik_hq_sbzh)
+
+  if (any(lsvi_habitat$is_subtype)) {
+
+    lsvi_habitat_subtype <- lsvi_habitat %>%
+      filter(is_subtype)
+
+    doelbereik_hq_subtype <- lsvi_habitat_subtype %>%
+      group_by(main_type, type) %>%
+      summarise(doelbereik_hq_mean = sum(doelbereik_mean_ind* weight) / sum(weight),
+                v1 = sum(weight),
+                v2 = sum((weight) ^ 2),
+                var_wgt = sum(weight * (doelbereik_mean_ind- doelbereik_hq_mean) ^ 2) / (v1 - (v2 / v1)),
+                n = n()) %>%
+      ungroup() %>%
+      mutate(se = ifelse(n >= 6, sqrt(var_wgt) / sqrt(n), NA),
+             doelbereik_hq_llci_0.95 = doelbereik_hq_mean - 1.96 * se,
+             doelbereik_hq_ulci_0.95 = doelbereik_hq_mean + 1.96 * se
+      ) %>%
+      mutate(type_resultaat = "Habitatsubtype",
+             sbzh = "Binnen & Buiten") %>%
+      rename(habitatsubtype = type)
+
+    doelbereik_hq <- doelbereik_hq %>%
+      bind_rows(doelbereik_hq_subtype)
+
+  }
+
+  doelbereik_hq <- doelbereik_hq %>%
+    mutate(schaal = "Vlaanderen",
+           versie = "Versie 3") %>%
+    select(schaal, versie, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, n_obs = n, doelbereik_hq_mean, doelbereik_hq_llci_0.95, doelbereik_hq_ulci_0.95)
+
+  return(doelbereik_hq)
 }
 
 calc_diff_index_hq_habitat <- function(lsvi_habitat_wide, threshold = 0.1) {

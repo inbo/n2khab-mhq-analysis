@@ -180,8 +180,6 @@ mhq_su_recent %>%
 
 #### Aandeel gunstig
 
-+ Steekproef
-
 ```{r}
 
 lsvi_habitat_recent <- lsvi_habitat %>%
@@ -195,7 +193,7 @@ status_flanders <- calc_status_habitat(lsvi_habitat_recent) %>%
 
 ```{r}
 
-beoordeling_colors <- c("Gunstig" = inbo_lichtgroen, "Ongunstig" = inbo_rood, "Onbekend" = inbo_grijs)
+beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
 
 status_flanders %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
@@ -207,7 +205,7 @@ status_flanders %>%
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0.75, linetype = 2) +
   facet_wrap(~ schaal) +
-  labs(x = "Habitattype", y = "Aandeel habitat in gunstige staat", colour = "Beoordeling") +
+  labs(x = "Habitattype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
@@ -215,6 +213,7 @@ status_flanders %>%
   theme(legend.position = "bottom")
   
 ```
+
 
 #### kwaliteitsindex
 
