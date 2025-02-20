@@ -146,7 +146,8 @@ mhq_su_remeasured <- mhq_su %>%
   mutate(n_measured = n_distinct(date),
          n_check = n(),
          periode = ifelse(date == min(date), "c_1",
-                          ifelse(date == max(date), "c_2", "extra"))) %>%
+                          ifelse(date == max(date), "c_2", "extra")),
+         diff_years = max(year(date)) - min(year(date))) %>%
   ungroup()
 
 weights_remeasured <- mhq_su_remeasured %>%
@@ -155,7 +156,8 @@ weights_remeasured <- mhq_su_remeasured %>%
            year_max = max(year(date))) %>%
   ungroup() %>%
   group_by(periode, year_min, year_max, main_type, type, in_sac) %>%
-  summarise(n_pq = n_distinct(point_code)) %>%
+  summarise(n_pq = n_distinct(point_code),
+            verschil_jaar = round(mean(diff_years), 1)) %>%
   ungroup()  %>%
   left_join(type_area, by = c("type", "in_sac")) %>%
   mutate(weight = area_ha / n_pq) %>%
@@ -411,7 +413,7 @@ mhq_su_remeasured %>%
 
 ```{r}
 lsvi_habitat_remeasured <- lsvi_habitat %>%
-  inner_join(select(mhq_su_remeasured, id, weight, date, periode), by = "id")
+  inner_join(select(mhq_su_remeasured, id, weight, date, periode, diff_years), by = "id")
 
 periodes <- lsvi_habitat_remeasured %>%
   group_by(main_type, periode) %>%
@@ -757,7 +759,7 @@ diff_index_hq %>%
 
 ```{r}
 lsvi_indicatoren_remeasured <- lsvi_indicator %>%
-  inner_join(select(mhq_su_remeasured, id, weight, date, periode), by = "id") 
+  inner_join(select(mhq_su_remeasured, id, weight, date, periode, diff_years), by = "id") 
 
 periodes <- lsvi_indicatoren_remeasured %>%
   group_by(main_type, periode) %>%

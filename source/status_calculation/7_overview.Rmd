@@ -2,8 +2,8 @@
 
 ```{r}
 
-habcat <- data.frame(habcat_code = c("gr_bm", "cd", "hs_id", "fs", "sw"),
-                     habcat_name = c("grassland_marsh", "coastal_dunes", "heath_inland_dunes", "forests", "standing_water"))
+habcat <- data.frame(habcat_code = c("gr_bm", "cd", "hs_id", "fs", "sw", "rw"),
+                     habcat_name = c("grassland_marsh", "coastal_dunes", "heath_inland_dunes", "forests", "standing_water", "streams"))
 
 status_flanders <- NULL
 trend_flanders <- NULL
@@ -27,11 +27,7 @@ for (i in 1:nrow(habcat)) {
   
 }
 
-trend_flanders <- trend_flanders %>%
-  select(-periode, -year_min, -year_max)
 
-write_csv2(status_flanders, "../output/status_habitatkwaliteit.csv")
-write_csv2(trend_flanders, "../output/trend_habitatkwaliteit.csv")
 ```
 
 ```{r}
@@ -123,7 +119,7 @@ status_flanders %>%
   geom_hline(yintercept = 0.75, linetype = 2) +
   geom_hline(yintercept = 0.9, linetype = 2) +
   facet_wrap(~ schaal) +
-  labs(x = "Habitattype", y = "Aandeel habitat in gunstige staat", colour = "Beoordeling") +
+  labs(x = "Habitattype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
@@ -140,7 +136,7 @@ trend_flanders %>%
   select(-parameter) %>%
   datatable(rownames = FALSE,
             filter = "top",
-            caption = "Absoluut verschil in aandeel habitat met gunstige toestand  (\\%)")
+            caption = "Absoluut verschil in aandeel habitat in goede toestand")
 ```
 ```{r, fig.height=7, fig.width=8}
 

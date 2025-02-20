@@ -48,12 +48,16 @@ check <- lsvi_detail %>%
 
 ```{r}
 
+ht3110_verdwenen <- data.frame(code_watersurfaces = c("ANTTUR0304", "LIMHHE0002"),
+                               type = "3110")
+
 mhq_su <- measurements_ws_all %>%
-  filter(ws_type == "mhq_sample") %>%
-  filter(suitable_mhq) %>%
   mutate(type = type_observed,
          main_type = str_sub(type, 1, 4)) %>%
-  select(id, code_watersurfaces, main_type, type, date) %>%
+  filter(ws_type %in% c("mhq_sampleframe", "mhq_sample")) %>%
+  anti_join(ht3110_verdwenen, by = c("code_watersurfaces", "type")) %>%
+  filter(suitable_mhq) %>%
+  select(id, code_watersurfaces, main_type, type, date, ws_type) %>%
   left_join(ws_area, by = "code_watersurfaces") %>%
   group_by(code_watersurfaces, date) %>%
   mutate(area_ha_type = area_ha / n_distinct(type)) %>% #plassen die verschillende types bevatten
@@ -69,6 +73,7 @@ check_area <- mhq_su %>%
 
 mhq_su_recent <- mhq_su %>%
   filter(!is.na(area_ha)) %>%
+  filter(ws_type == "mhq_sample") %>%
   group_by(code_watersurfaces, type) %>%
   filter(date == max(date)) %>%
   ungroup() %>%
@@ -99,11 +104,13 @@ check <- mhq_su_recent %>%
 
 mhq_su_remeasured <- mhq_su %>%
   group_by(code_watersurfaces, main_type, type) %>%
-  filter(n_distinct(date) > 1) %>%
+  filter(n_distinct(date) > 1,
+         (year(max(date)) - year(min(date)) >= 3 )) %>%
   mutate(n_measured = n_distinct(date),
          n_check = n(),
          periode = ifelse(date == min(date), "c_1",
-                          ifelse(date == max(date), "c_2", "extra"))) %>%
+                          ifelse(date == max(date), "c_2", "extra")),
+         diff_years = max(year(date)) - min(year(date))) %>%
   ungroup()
 
 weights_remeasured <- mhq_su_remeasured %>%
@@ -113,6 +120,7 @@ weights_remeasured <- mhq_su_remeasured %>%
   ungroup() %>%
   group_by(periode, year_min, year_max, main_type, type, in_sac, area_class) %>%
   summarise(n_stratum = n_distinct(code_watersurfaces),
+            verschil_jaar = round(mean(diff_years), 1),
          area_stratum_ha = sum(area_ha_type)) %>%
   ungroup()  %>%
   left_join(type_ws_area, by = c("type", "in_sac", "area_class")) %>%
@@ -508,7 +516,7 @@ mhq_su_remeasured %>%
 
 ```{r}
 lsvi_habitat_remeasured <- lsvi_habitat %>%
-  inner_join(select(mhq_su_remeasured, id, weight = weight_ws, date, periode), by = "id") %>%
+  inner_join(select(mhq_su_remeasured, id, weight = weight_ws, date, periode, diff_years), by = "id") %>%
   filter(!type %in% c("2190_a", "3140"))
 
 periodes <- lsvi_habitat_remeasured %>%
@@ -769,7 +777,7 @@ diff_index_hq %>%
 
 ```{r}
 lsvi_indicatoren_remeasured <- lsvi_indicator %>%
-  inner_join(select(mhq_su_remeasured, id, weight = weight_ws, date, periode), by = "id") 
+  inner_join(select(mhq_su_remeasured, id, weight = weight_ws, date, periode, diff_years), by = "id") 
 
 periodes <- lsvi_indicatoren_remeasured %>%
   group_by(main_type, periode) %>%

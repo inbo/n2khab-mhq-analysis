@@ -1,6 +1,12 @@
-# Preprocessing terrestrial
+# Preprocessing terrestrische habitats
 
-## Admin data
+## Overzicht metingen meetnet habitatkwaliteit (MHQ)
+
+Een overzicht van de metingen is terug te vinden in de repo [n2khab-sample-admin](https://github.com/inbo/n2khab-sample-admin):
+
++ de tabel 'mhq_terr_measurements' bevat een overzicht van de metingen van van MHQ
+
++ de tabel 'mhq_terr_refpoints' bevat de coördinaten voor elk meetpunt (point_code)
 
 ```{r}
 path_lsvi <- file.path(fileman_up("n2khab-mhq-data"), "processed")
@@ -30,7 +36,15 @@ mhq_popunits <- read_vc(root = file.path(path_admin, "mhq_terr"),
                              file = "mhq_terr_popunits")
 ```
 
-## Strata
+## Ligging van meetpunten: binnen of buiten SBZH
+
+MHQ kent een hogere dichtheid aan meetpunten binnen SBZH in vergelijking met buiten SBZH.
+We moeten daarom gebruik maken van gewichten om een onvertekende schatting te maken op schaal Vlaanderen.
+In een eerste stap bepalen we de ligging van elk meetpunt (binnen of buiten SBZH).
+We maken hiervoor gebruik van de coördinaten in 'mhq_terr_refpoints'.
+
+Binnen MHQ maken we ook gebruik van meetpunten van de Vlaamse bosinventarisatie (VBI) en Scheldemonitoring (MONEOS).
+De coördinaten van deze meetpunten zijn terug te vinden in de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data).
 
 ```{r}
 sac <- read_admin_areas(dsn = "sac") %>%
@@ -97,6 +111,11 @@ check_in_sac <- strata_vbi %>%
 ```
 
 ## Areas
+
+Ook de oppervlaktes van elk habitattype binnen en buiten SBZH moet bepaald worden om de gewichten te kunnen berekenen.
+We maken hiervoor gebruik van de databron [habitatmap_terr_2023_v1](https://zenodo.org/records/13886579): the interpreted, terrestrial part of habitatmap_stdized.
+Deze databron kan ingelezen worden via de functie `read_habitatmap_terr()` van het R package [n2khab](https://inbo.github.io/n2khab/index.html).
+De databron moet dan wel eerst lokaal opgeslagen worden volgens de instructies beschreven in het [n2khab vignette](https://inbo.github.io/n2khab/articles/v020_datastorage.html).
 
 ```{r}
 habmap_stdized_terr <- read_habitatmap_terr()
@@ -268,31 +287,53 @@ ws_hab_area <- watersurfaces_hab_polygons %>%
                                   ifelse(area_ha <= 50, "5 ha < area < 50 ha",  ">= 50 ha")))) %>%
   select(code_watersurfaces = polygon_id, in_sac, area_ha, area_class) 
 
+watersurfaces_gh <- mhq_ws_assessments %>% #watervlakken waarvan is vastgesteld dat ze geen enkel habitattype bevatten
+  filter(!any_habitat) %>%
+  select(code_watersurfaces = polygon_id, any_habitat) %>%
+  unique()
+
 ws_hab_type <- watersurfaces_hab_table %>%
   rename(code_watersurfaces = polygon_id) %>%
   mutate(type = ifelse(type == "3130", "3130_aom", as.character(type))) %>%
   distinct(code_watersurfaces, type) %>%
   inner_join(ws_hab_area, by = "code_watersurfaces") %>%
-  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present), by = c("code_watersurfaces", "type" )) %>%  
-  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, any_habitat), by = c("code_watersurfaces")) %>%
+  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present), by = c("code_watersurfaces", "type" )) %>%
+  left_join(watersurfaces_gh, by = "code_watersurfaces")
+
+ws_hab_type_check1 <- ws_hab_type %>%
+  filter(!is_present | #watersurface is visited and was not observed but is present according to watersurfaces_hab_v6 
+           !any_habitat) %>% 
+  filter(type != "2190_a")
+
+ws_hab_type_check1 %>%
+  write_csv2("../../output/watervlakken_habt_nietgeobserveerd.csv")
+
+ws_hab_type_check2 <- ws_hab_type %>%
+  filter(area_class == ">= 50 ha" | #strata die integraal geteld worden
+         type == "3110" |
+         (type == "2190_a" & area_class == "1 ha < area <= 5 ha")) %>%
+  filter(is.na(is_present)) %>% # nog niet bezochte plassen
+  filter(!code_watersurfaces %in% sample_cycle2$polygon_id)
+    
+
+ws_hab_type_check1 %>%
+  write_csv2("../../output/watervlakken_habt_nietgeobserveerd.csv")
+
+ws_hab_type <- ws_hab_type %>%
   filter(is.na(is_present) #water surface is not visited but type is present according to watersurface_hab_v6
          | is_present) %>% #water surface is visited and type was observed
   filter(is.na(any_habitat) | any_habitat) %>% # exclude any_habitat = FALSE, meaning that is was observed that no habitat type was present
   filter(!code_watersurfaces %in% c("WVLBRU0368", "WVLBRU0369", "WVLBRU0374")) #manual correction TO BE INCLUDED IN MHQ ASSESSMENTS TABLE
 
+# oppervlakte per habitattype ,sac, area_class
 type_ws_area <- ws_hab_type %>%
   group_by(code_watersurfaces) %>%
-  mutate(area_ha_type = area_ha / n_distinct(type)) %>%
+  mutate(area_ha_type = area_ha / n_distinct(type)) %>%  # indien n habitattypes aanwezig in plas --> oppervlakte volledige plas/ n
   ungroup() %>%
   group_by(type, in_sac, area_class) %>%
   summarise(area_flanders_ha = sum(area_ha_type),
             n_ws_flanders = n_distinct(code_watersurfaces)) %>%
   ungroup()
-
-check <- type_ws_area %>%
-  mutate(main_type = str_sub(type, 1 , 4)) %>%
-  group_by(type) %>%
-  summarise(check_area = sum(area_flanders_ha))
 
 main_type_ws_area <- watersurfaces_hab_table %>%
   rename(code_watersurfaces = polygon_id) %>%

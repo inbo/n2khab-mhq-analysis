@@ -92,7 +92,8 @@ mhq_su_remeasured <- mhq_su %>%
   mutate(n_measured = n_distinct(date),
          n_check = n(),
          periode = ifelse(date == min(date), "c_1",
-                          ifelse(date == max(date), "c_2", "extra"))) %>%
+                          ifelse(date == max(date), "c_2", "extra")),
+         diff_years = max(year(date)) - min(year(date))) %>%
   ungroup()
 
 weights_remeasured <- mhq_su_remeasured %>%
@@ -103,7 +104,8 @@ weights_remeasured <- mhq_su_remeasured %>%
   ungroup() %>%
   group_by(periode, main_type, type, in_sac) %>%
   summarise(length_measured_km = n_distinct(segment_id) * 100 / 1000,
-         n = n_distinct(segment_id)) %>%
+         n = n_distinct(segment_id),
+         verschil_jaar = round(mean(diff_years), 1)) %>%
   ungroup()  %>%
   left_join(length_3260, by = c("in_sac")) %>%
   mutate(weight_stratum  =  length_flanders_km / length_measured_km) %>%
@@ -188,6 +190,11 @@ lsvi_habitat_recent <- lsvi_habitat %>%
 status_flanders <- calc_status_habitat(lsvi_habitat_recent) %>%
   mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type)))
 
+status_flanders %>%
+  write_vc(root = output_path,
+           file = str_c("status_habitat_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
+           strict = FALSE)
 ```
 
 
@@ -259,7 +266,7 @@ status_indicatoren <- calc_status_indicator(lsvi_indicator_recent) %>%
   
 status_indicatoren %>%
   write_vc(root = output_path,
-           file = str_c("status_indicatoren", habcat_code),
+           file = str_c("status_indicatoren_", habcat_code),
            sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
            strict = FALSE)
 ```
@@ -323,7 +330,7 @@ mhq_su_remeasured %>%
 
 ```{r}
 lsvi_habitat_remeasured <- lsvi_habitat %>%
-  inner_join(select(mhq_su_remeasured, id, weight = weight_stratum_scaled, date, periode), by = "id")
+  inner_join(select(mhq_su_remeasured, id, weight = weight_stratum_scaled, date, periode, diff_years), by = "id")
 
 periodes <- lsvi_habitat_remeasured %>%
   group_by(main_type, periode) %>%
@@ -385,7 +392,7 @@ lsvi_habitat_trend %>%
   geom_hline(yintercept = 0, linetype = 2) +
   geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
   geom_text(size = 4, colour = "white") +
-  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand",
        x = "Habitattype") +
   facet_wrap(~ schaal) +
   scale_x_discrete(limits = rev) +
@@ -520,7 +527,7 @@ diff_index_hq %>%
 
 ```{r}
 lsvi_indicatoren_remeasured <- lsvi_indicator %>%
-  inner_join(select(mhq_su_remeasured, id, weight = weight_stratum_scaled, date, periode), by = "id") 
+  inner_join(select(mhq_su_remeasured, id, weight = weight_stratum_scaled, date, periode, diff_years), by = "id") 
 
 periodes <- lsvi_indicatoren_remeasured %>%
   group_by(main_type, periode) %>%

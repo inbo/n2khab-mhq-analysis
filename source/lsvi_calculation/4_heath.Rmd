@@ -537,13 +537,13 @@ correct_status_criterium <- resultaat_indicator%>%
   mutate(Aggregatiemethode = "RapportageHR") %>%
   select(ID, Habitattype, Aggregatiemethode, Criterium, n_zb_ongunstig, aandeel_gunstig, status_criterium, index_mean_ind, doelbereik_mean_ind)
 
-lsvi_cd$Resultaat_globaal <- correct_status_globaal
+lsvi_hs_id$Resultaat_globaal <- correct_status_globaal
 
-lsvi_cd$Resultaat_criterium <- correct_status_criterium
+lsvi_hs_id$Resultaat_criterium <- correct_status_criterium
 
-lsvi_cd$Resultaat_detail <- resultaat_detail
+lsvi_hs_id$Resultaat_detail <- resultaat_detail
 
-lsvi_cd$Resultaat_indicator <- resultaat_indicator
+lsvi_hs_id$Resultaat_indicator <- resultaat_indicator
 ```
 
 ### Check missing voorwaarden

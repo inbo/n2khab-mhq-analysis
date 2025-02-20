@@ -42,7 +42,7 @@ site_qualifiers_moneos <- read_vc(file = "site_qualifiers_moneos", root = path_m
   rename(record_id = recording_givid)
 
 coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_mhq_terr)
-
+structure_1330_da <- read_vc(file = "structure_mhq_1330_da", root = path_mhq_terr)
 ```
 
 ## Fieldmap data
