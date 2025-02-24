@@ -110,12 +110,44 @@ check_in_sac <- strata_vbi %>%
   ungroup()
 ```
 
-## Areas
+## Oppervlaktes
 
 Ook de oppervlaktes van elk habitattype binnen en buiten SBZH moet bepaald worden om de gewichten te kunnen berekenen.
 We maken hiervoor gebruik van de databron [habitatmap_terr_2023_v1](https://zenodo.org/records/13886579): the interpreted, terrestrial part of habitatmap_stdized.
 Deze databron kan ingelezen worden via de functie `read_habitatmap_terr()` van het R package [n2khab](https://inbo.github.io/n2khab/index.html).
 De databron moet dan wel eerst lokaal opgeslagen worden volgens de instructies beschreven in het [n2khab vignette](https://inbo.github.io/n2khab/articles/v020_datastorage.html).
+
+We controleren de versie door de hash van het lokaal gedownloade bestand te vergelijking met deze op Zenodo.
+
+```{r}
+
+path <- fileman_up("n2khab_data")
+file <- "20_processed/habitatmap_terr"
+
+mypath <- file.path(path, file)
+
+hashes <-
+    tibble(filepath = str_c(mypath, "/",
+        list.files(path = mypath,
+            recursive = TRUE)
+      )) %>%
+    mutate(filename = str_match(filepath, "(.+\\/)*(.+)")[,3],
+           md5_lokaal = map(filepath, function(x) {
+                           file(x) %>% md5 %>% str_c(collapse = '')
+                         }) %>% as.character,
+           md5_zenodo = c("0e11e93c909b0044de94326debf3dfce"),
+           match = md5_lokaal == md5_zenodo) %>%
+    select(filename,
+           md5_lokaal,
+           md5_zenodo,
+           match)
+
+hashes
+
+if (!all.equal(hashes$md5_lokaal, hashes$md5_zenodo)) {
+    stop(cat("The standardized version is NOT up to date ! Please check  the datasource. "))
+}
+```
 
 ```{r}
 habmap_stdized_terr <- read_habitatmap_terr()
@@ -146,7 +178,16 @@ type_area <- habmap_stdized_terr$habitatmap_terr_types %>%
 
 ```
 
-# Preprocessing aquatic - standing water
+# Preprocessing stilstaande wateren
+
+## Overzicht metingen meetnet habitatkwaliteit (MHQ)
+
+In de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data) vinden we:
+
++ de tabel 'HT31xx_header' met een overzicht van alle plassen waar een LSVI-opname werd uitgevoerd (zie repo )
+
++ de tabel 'mapping_table_inbocode' met een vertaling van de oude watervlakkencodes naar de nieuwe watervlakkencodes (die gebruikt worden ind e watervlakkenlaag)
+
 
 ```{r}
 
@@ -164,7 +205,7 @@ watersurfaces_hab <- read_watersurfaces_hab()
 watersurfaces_hab_table <- watersurfaces_hab$watersurfaces_types
 watersurfaces_hab_polygons <- watersurfaces_hab$watersurfaces_polygons
 
-watersurfaces_code <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "raw/watervlakken_codes/mapping_table_inbocode.csv")) %>%
+watersurfaces_code <- read_csv2(file.path(path_lsvi_aq, "watervlakken_codes/mapping_table_inbocode.csv")) %>%
   select(code_watersurfaces = codeplas, inbocode)
 ```
 
@@ -189,21 +230,21 @@ measurements_ws_all <- measurements_ws %>%
   filter(!str_detect(location, "_")) %>%
   rename(code_watersurfaces = location) %>%
   bind_rows(measurements_ws_old) %>%
-  filter(suitable_mhq) %>%
   left_join(mhq_ws_popunits_unique, by = "code_watersurfaces") %>%
-  mutate(in_watersurfaces_hab = code_watersurfaces %in% watersurfaces_hab_table$polygon_id)
+  mutate(in_watersurfaces_hab = code_watersurfaces %in% watersurfaces_hab_table$polygon_id) %>%
+  filter(suitable_mhq)
 
 ```
 
-De opnames bevatten ook waterlichamen die niet geselecteerd werden in kader van mhq.
+De opnames bevatten ook waterlichamen die niet geselecteerd werden in kader van MHQ.
 We selecteren de waterlichamen die werden opgemeten in de eerste meetcyclus en de waterlichamen die werden geselecteerd voor de tweede meetcyclus. 
 
 ```{r }
 
-sample_cycle2 <- st_read(file.path(fileman_up("n2khab-mhq-design"), "habitatwatersurfaces_cycle2/output/mhq_standingwater_cycle2_2024-04-17.gpkg")) %>%
+sample_cycle2 <- st_read(file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/mhq_standingwater_cycle2_2024-04-17.gpkg")) %>%
   st_drop_geometry()
 
-measurements_cycle1 <- read_vc(file = "mhq_watersurfaces_measurements", root = file.path(fileman_up("n2khab-mhq-design"), "habitatwatersurfaces_cycle1/output")) %>%
+measurements_cycle1 <- read_vc(file = "mhq_watersurfaces_measurements_cycle1", root = file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/")) %>%
   filter(measurement_type == "biotic")
 
 measurements_ws_all <- measurements_ws_all %>%
@@ -224,11 +265,11 @@ measurements_ws_all %>%
 
 
 
-## Areas strata
+## Strata
 
 We maken gebruik van [watersurfaces_hab_v6](https://zenodo.org/records/14621825): Map of standing water habitat types and regionally important biotopes in Flanders.
 
-We controleren eerst de versie, door de md5 hash op de Zenodo website te vergelijken met de md5 hash van het bestand dat wordt ingelezen:
+We controleren eerst de versie:
 
 ```{r}
 
@@ -259,6 +300,17 @@ if (!all.equal(hashes$md5_lokaal, hashes$md5_zenodo)) {
     stop(cat("The standardized version is NOT up to date ! Please check  the datasource. "))
 }
 ```
+
+De strata worden gevormd door elke combinatie van:
+
++ ligging binnen of buiten SBZH
++ oppervlakteklasse
++ habitatsubtype
+
+Voor elk opgemeten watervlak bepalen we tot welk stratum het behoort.
+
+Vervolgens bepalen we de totale oppervlakte van elk stratum op basis van 'watersurfaces_hab_v6' en 'mhq_watersurfaces_assessments'.
+
 ```{r}
 
 watersurfaces <- read_watersurfaces()
@@ -297,7 +349,7 @@ ws_hab_type <- watersurfaces_hab_table %>%
   mutate(type = ifelse(type == "3130", "3130_aom", as.character(type))) %>%
   distinct(code_watersurfaces, type) %>%
   inner_join(ws_hab_area, by = "code_watersurfaces") %>%
-  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present), by = c("code_watersurfaces", "type" )) %>%
+  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present, assessment_date), by = c("code_watersurfaces", "type" )) %>%
   left_join(watersurfaces_gh, by = "code_watersurfaces")
 
 ws_hab_type_check1 <- ws_hab_type %>%
@@ -323,7 +375,9 @@ ws_hab_type <- ws_hab_type %>%
   filter(is.na(is_present) #water surface is not visited but type is present according to watersurface_hab_v6
          | is_present) %>% #water surface is visited and type was observed
   filter(is.na(any_habitat) | any_habitat) %>% # exclude any_habitat = FALSE, meaning that is was observed that no habitat type was present
-  filter(!code_watersurfaces %in% c("WVLBRU0368", "WVLBRU0369", "WVLBRU0374")) #manual correction TO BE INCLUDED IN MHQ ASSESSMENTS TABLE
+  filter(!code_watersurfaces %in% c("WVLBRU0368", "WVLBRU0369", "WVLBRU0374")) %>% #manual correction TO BE INCLUDED IN MHQ ASSESSMENTS TABLE
+  filter(!(code_watersurfaces == "LIMHHE0002" &
+           type == "3110"))
 
 # oppervlakte per habitattype ,sac, area_class
 type_ws_area <- ws_hab_type %>%
@@ -353,7 +407,15 @@ main_type_ws_area <- watersurfaces_hab_table %>%
 ```
 
 
-# Preprocessing aquatic - streams
+# Preprocessing stromende wateren
+
+## Overzicht metingen meetnet habitatkwaliteit (MHQ)
+
+In de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data) vinden we:
+
++ de tabel 'HT3260_header' met een overzicht van alle opnames waar een LSVI-opname werd uitgevoerd (zie repo )
+
++ de tabel 'code_locaties_3260' geeft de link tussen de locatiecode (zoals gebruikt in INBOVEG) en het id van riviersegment (zoals gebruikt in de steekproeftrekking)
 
 ```{r}
 measurements_streams <- read_vc(file = "HT3260_header", root = path_lsvi_aq)
@@ -366,7 +428,7 @@ mhq_streams_refpoints <- read_vc(file = "mhq_streams_refpoints", root =  path_ad
 
 mhq_streams_refpoints_val <- read_vc(file = "mhq_streams_refpoints_validity", root =  path_admin_mhq)
 
-watersurfaces_code_orig <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "raw/3260_steekproefkader/code_locaties_3260.csv"))
+watersurfaces_code_orig <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/3260_steekproefkader/code_locaties_3260.csv"))
 
 watersurfaces_code <- watersurfaces_code_orig %>%
   select(location = Veldcode, segment_id = sampling_unit_code, sbzh = SBZ, source_c2 = `bron+datum_cyclus2`, source_c1 = `bron+datum_cyclus1`)
@@ -382,8 +444,19 @@ measurements_streams_mhq <- measurements_streams %>%
   filter(type_observed == "3260", suitable_mhq)
 ```
 
+## Strata 
+
+Bij de rivieren hebben we 2 strata:
+
++ intersectie met SBZH of stroomafwaarts t.o.v. SBZH
++ buiten SBZH (en niet stroomafwaarts t.O.v. SBZH)
+
+Dit wordt weergegeven in de shapefile shapefile 'steekproefkader_3260_v1_7_strata'.
+
+We berkenen de totale lengte in elk stratum.
+
 ```{r}
-sampleframe_3260_orig <- st_read(file.path(fileman_up("n2khab-mhq-data"), "raw/3260_steekproefkader/BasisbestandSteekproefvernieuwingHT3260_SBZ.shp"))
+sampleframe_3260_orig <- st_read(file.path(fileman_up("n2khab-mhq-data"), "processed/3260_steekproefkader/steekproefkader_3260_v1_7_strata.shp"))
 
 sampleframe_3260 <- sampleframe_3260_orig %>%
   mutate(length_m = drop_units(st_length(geometry))) %>%
@@ -396,4 +469,34 @@ length_3260 <- sampleframe_3260 %>%
   summarise(length_flanders_km = sum(length_m) / 1000) %>%
   ungroup()
 ```
+# Methode
+
+## Selectie analyseset
+
++ Voor de schatting van het aandeel habitat in goede toestand selecteren we de meest recente opname per meetpunt.
+
++ Voor de schatting van de trend in het aandeel habitat in goede toestand selecteren we meetpunten die al minsten tweemaal werden opgemeten met minstens 4 jaar tussen de eerste en de laatste meting.
+
+## Schatting van het aandeel habitat in goede toestand
+
++ We maken gebruik van ``svyglm` uit `survey` package
+
+## Schatting van de trend in aandeel habitat in goede toestand
+
++ We maken gebruik van mixed model via `INLA` package
+
+## Habitatkwalitaitsindex
+
+De habitatkwaliteitsindex heeft een waarde tussen -1 en +1, waarbij 0 overeenkomt met de referentiewaarde
+
++ per indicator:
+  + positieve indicator:
+    + waarde >=  referentiewaarde: (waarde - referentiewaarde) / (maximum waarde - referentiewaarde)
+    + waarde <  referentiewaarde: (waarde - referentiewaarde) / (referentiewaarde - minimum waarde)
+  + negatieve indicator:
+    + waarde >=  referentiewaarde: (referentiewaarde - waarde) / (maximum waarde - referentiewaarde)
+    + waarde <  referentiewaarde: (referentiewaarde - waarde) / (referentiewaarde - minimum waarde) 
+    
++ per vegetatievlek: gemiddelde habitatkwaliteitsindex van alle indicatoren
+
 

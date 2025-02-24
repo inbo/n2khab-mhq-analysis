@@ -22,7 +22,7 @@ lsvi_indicator <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_
 data_habitat <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_name, "/input")),
                              file = str_c("data_habitat_", habcat_code))
 
-#moneos --> 1330_da
+# voor 1330 hebben we moneos data nodig voor subtype 1330_da
 lsvi_detail_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/result"),
                              file = "lsvi_detail_moneos")
 
@@ -348,7 +348,7 @@ for (habt in unique(status_indicatoren$habitattype)) {
   facet_grid(criterium ~ habitattype, scales = "free_y", space = "free") + 
   coord_flip() +
   labs(x = "Indicator",
-       y = "Aandeel habitat met gunstige staat voor indicator") + 
+       y = "Aandeel habitat in goede toestand per indicator") + 
   geom_hline(aes(yintercept = 0.75), 
              colour = "black", 
              size = 0.5, 
@@ -365,7 +365,7 @@ for (habt in unique(status_indicatoren$habitattype)) {
 
 ```
 
-```{r, fig.width=11, fig.height=4}
+```{r, fig.width=11, fig.height=4, eval = FALSE}
 lsvi_indicator_recent %>%
   filter(type == "1330_da") %>%
   filter(belang == "zb") %>%
@@ -525,36 +525,6 @@ lsvi_habitat_trend %>%
   
 
 ```
-```{r fig.width= 8}
-
-labels_prct <- c(-75, -50, 0, 100, 400, 2500, 5000)
-breaks_log <- log(labels_prct/100 + 1) + 1
-labels_show <- str_c(labels_prct, "%")
-
-lsvi_habitat_trend %>%
-  filter(parameter == "verschil_aandeel_gunstig_rel") %>%
-  filter(sbzh != "Buiten") %>%
-  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
-  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", 
-                        ifelse(sbzh == "Buiten", "Buiten SBZH", "Vlaanderen")),
-         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH", "Buiten SBZH"))) %>%
-  ggplot(aes(x = habitattype, y = log(mean/100 + 1) + 1, ymin = log(llci_0.95/100 + 1) + 1, ymax = log(ulci_0.95/100 + 1) + 1, label = klasse, colour = klasse)) +
-  geom_point(size = 7) +
-  geom_errorbar(width = 0.2, show.legend = TRUE) +
-  geom_hline(yintercept = 1, linetype = 2) +
-  geom_hline(yintercept = c(log(0.75) + 1, log(1.33) + 1), linetype = 3) +
-  geom_text(size = 4, colour = "white") +
-  labs(y = "Relatief verschil aandeel habitat gunstig (%)",
-       x = "Habitattype") +
-  facet_wrap(~ schaal) +
-  scale_x_discrete(limits = rev) +
-  scale_y_continuous(breaks = breaks_log, labels = labels_show) +
-  scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
-  labs(colour = "Interpretatie trend") +
-  coord_flip() +
-  theme(legend.position = "bottom")
-```
-
 
 #### Mc Nemar Test
 
@@ -753,7 +723,8 @@ colnames(trend_indicator) <- str_to_lower(colnames(trend_indicator))
 lsvi_indicatoren <- lsvi_indicatoren_remeasured %>%
   filter(periode != "extra")
 
-lsvi_indicator_trend <- calc_trend_indicator(lsvi_indicatoren)
+lsvi_indicator_trend <- calc_trend_indicator(lsvi_indicatoren) %>%
+  arrange(habitattype)
 
 lsvi_indicator_trend %>%
   write_vc(root = output_path,
@@ -778,7 +749,7 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
   geom_hline(yintercept = 0, linetype = 2) +
   geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
   geom_text(size = 4, colour = "white") +
-  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand per indicator",
        x = "Habitattype") +
   facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
   scale_x_discrete(limits = rev) +
@@ -810,7 +781,8 @@ indicatoren_wide <- lsvi_indicatoren_remeasured %>%
 
 ```{r}
 
-diff_index_ind <- calc_diff_index_hq_indicator(indicatoren_wide, threshold = 0.1)
+diff_index_ind <- calc_diff_index_hq_indicator(indicatoren_wide, threshold = 0.1) %>%
+  arrange((habitattype))
 
 diff_index_ind %>%
   write_vc(root = output_path,
@@ -847,6 +819,7 @@ for (habt in unique(diff_index_ind$habitattype)) {
   geom_hline(yintercept = 0, linetype = "dashed")  +
   geom_hline(yintercept = c(-0.1,0.1), linetype = 3) +
     lims(y = c(-1.5, 1.5)) +
+  scale_x_discrete(limits = rev) +
   scale_color_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   theme(strip.text.y = element_text(angle = 0), 
         legend.position = "bottom", legend.box = "vertical") +

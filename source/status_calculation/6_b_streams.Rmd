@@ -289,7 +289,7 @@ for (habt in unique(status_indicatoren$habitattype)) {
   facet_grid(criterium ~ habitattype, scales = "free_y", space = "free") + 
   coord_flip() +
   labs(x = "Indicator",
-       y = "Aandeel habitat met gunstige staat voor indicator") + 
+       y = "Aandeel habitat in goede toestand per indicator") + 
   geom_hline(aes(yintercept = 0.75), 
              colour = "black", 
              size = 0.5, 
@@ -584,7 +584,7 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
   geom_hline(yintercept = 0, linetype = 2) +
   geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
   geom_text(size = 4, colour = "white") +
-  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand per indicator",
        x = "Habitattype") +
   facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
   scale_x_discrete(limits = rev) +
@@ -654,6 +654,7 @@ for (habt in unique(diff_index_ind$habitattype)) {
   geom_hline(yintercept = 0, linetype = "dashed")  +
   geom_hline(yintercept = c(-0.1,0.1), linetype = 3) +
     lims(y = c(-1, 1)) +
+  scale_x_discrete(limits = rev) +
   scale_color_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   theme(strip.text.y = element_text(angle = 0), 
         legend.position = "bottom", legend.box = "vertical") +

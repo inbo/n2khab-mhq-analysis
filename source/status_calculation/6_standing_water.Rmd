@@ -216,31 +216,32 @@ check <- mhq_su_recent %>%
 lsvi_habitat_recent <- lsvi_habitat %>%
   inner_join(select(mhq_su_recent, id, weight_ws, weight_stratum, area_ha, area_ha_type, date), by = "id") %>%
   mutate(weight = weight_ws) %>%
-  mutate(weight = ifelse(is.na(weight), 1, weight))
+  mutate(weight = ifelse(is.na(weight), 1, weight),
+         is_integraal = main_type == "3110" | 
+                        area_class == ">= 50 ha" | 
+                        (main_type == "2190" & area_class == "1 ha < area <= 5 ha"))
 
 lsvi_habitat_recent_sample <- lsvi_habitat_recent %>%
-  filter(area_class != ">= 50 ha")
+  filter(!is_integraal)
 
 status_flanders_sample <- calc_status_habitat(lsvi_habitat_recent_sample) %>%
   mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type)))
 
-
 ```
-
 
 + integraal
 
 ```{r}
 lsvi_habitat_recent_integraal <- lsvi_habitat_recent %>%
-  filter(main_type == "3110" | area_class == ">= 50 ha")
+  filter(is_integraal)
 
-lsvi_missing <- ws_hab_area %>%
-  left_join(select(watersurfaces_hab_table, code_watersurfaces = polygon_id, type), by = c("code_watersurfaces")) %>%
-  filter(area_class == ">= 50 ha" | type == "3110") %>%
-  anti_join(lsvi_habitat_recent, by = "code_watersurfaces") %>%
-   mutate(main_type = str_sub(type, 1, 4)) %>%
+lsvi_missing <- ws_hab_type %>%
+  mutate(main_type = str_sub(type, 1, 4)) %>%
+  filter(area_class == ">= 50 ha" | type == "3110" | (main_type == "2190" & area_class == "1 ha < area <= 5 ha")) %>%
+  anti_join(lsvi_habitat_recent, by = c("code_watersurfaces", "type")) %>%
   group_by(code_watersurfaces) %>%
-  mutate(area_ha_type = area_ha / n_distinct(type))
+  mutate(area_ha_type = area_ha / n_distinct(type)) %>%
+  ungroup()
 
 lsvi_habitat_recent_integraal <- lsvi_habitat_recent_integraal %>%
   bind_rows(lsvi_missing)
@@ -250,7 +251,8 @@ subtype_integraal <- lsvi_habitat_recent_integraal %>%
   group_by(type) %>%
   summarise(area_unknown_ha = sum(area_ha_type * is.na(status)),
             area_measured_int_ha = sum(area_ha_type * !is.na(status)),
-            area_gunstig_int_ha = sum(area_ha_type * status, na.rm = TRUE)) %>%
+            area_gunstig_int_ha = sum(area_ha_type * status, na.rm = TRUE),
+            n_obs_int = n_distinct(code_watersurfaces)) %>%
   ungroup() %>%
   rename( habitatsubtype = type)
 
@@ -258,7 +260,8 @@ maintype_integraal <- lsvi_habitat_recent_integraal %>%
   group_by(main_type) %>%
   summarise(area_unknown_ha = sum(area_ha_type * is.na(status)),
             area_measured_int_ha = sum(area_ha_type * !is.na(status)),
-            area_gunstig_int_ha = sum(area_ha_type * status, na.rm = TRUE)) %>%
+            area_gunstig_int_ha = sum(area_ha_type * status, na.rm = TRUE),
+            n_obs_int = n_distinct(code_watersurfaces)) %>%
   ungroup() %>%
   rename(habitattype = main_type)
 
@@ -266,7 +269,8 @@ sac_integraal <-  lsvi_habitat_recent_integraal %>%
   group_by(main_type, in_sac) %>%
   summarise(area_unknown_ha = sum(area_ha_type * is.na(status)),
             area_measured_int_ha = sum(area_ha_type * !is.na(status)),
-            area_gunstig_int_ha = sum(area_ha_type * status, na.rm = TRUE)) %>%
+            area_gunstig_int_ha = sum(area_ha_type * status, na.rm = TRUE),
+            n_obs_int = n_distinct(code_watersurfaces)) %>%
   ungroup() %>%
   rename(habitattype = main_type) %>%
   mutate(sbzh = ifelse(in_sac, "Binnen", "Buiten")) %>%
@@ -278,15 +282,15 @@ sac_integraal <-  lsvi_habitat_recent_integraal %>%
 
 ```{r}
 
-areas_habt <- weights_recent_table %>%
-  filter(area_class != ">= 50 ha") %>%
+areas_habt_sample <- weights_recent_table %>%
+  filter(!(area_class == ">= 50 ha" | type == "3110" | (main_type == "2190" & area_class == "1 ha < area <= 5 ha"))) %>%
   group_by(main_type) %>%
   summarise(area_sample_ha = sum(area_flanders_ha)) %>%
   ungroup() %>%
   rename(habitattype = main_type) 
 
-areas_sac <- weights_recent_table %>%
-  filter(area_class != ">= 50 ha") %>%
+areas_sac_sample <- weights_recent_table %>%
+  filter(!(area_class == ">= 50 ha" | type == "3110" | (main_type == "2190" & area_class == "1 ha < area <= 5 ha"))) %>%
   group_by(main_type, in_sac) %>%
   summarise(area_sample_ha = sum(area_flanders_ha)) %>%
   ungroup() %>%
@@ -294,34 +298,44 @@ areas_sac <- weights_recent_table %>%
   mutate(sbzh = ifelse(in_sac, "Binnen", "Buiten")) %>%
   select(-in_sac)
 
-areas_subt <- weights_recent_table %>%
-  filter(area_class != ">= 50 ha") %>%
+areas_subt_sample <- weights_recent_table %>%
+  filter(!(area_class == ">= 50 ha" | type == "3110" | (main_type == "2190" & area_class == "1 ha < area <= 5 ha"))) %>%
   group_by(type) %>%
   summarise(area_sample_ha = sum(area_flanders_ha)) %>%
   ungroup() %>%
   rename(habitatsubtype = type) 
 
-sac_missing <- status_flanders_sample %>%
-  filter(habitattype %in% c("2190", "3110")) %>%
+sac2190_missing <- status_flanders_sample %>%
+  filter(habitattype %in% c("2190")) %>%
   mutate(type_resultaat = "SBZH",
-         sbzh = "Binnen") 
+         sbzh = "Binnen")
 
+ht3110_missing  <- status_flanders_sample %>%
+  distinct(versie, schaal, type_resultaat, sbzh) %>%
+  mutate(habitattype = "3110",
+         habitatsubtype = "3110",
+         aandeel_gunstig = 0,
+         n_obs = 0) %>%
+  filter(sbzh != "Buiten") %>% # enkel plassen binnen SBZH
+  filter(type_resultaat != "Habitatsubtype")
+  
 status_flanders_sample <- status_flanders_sample %>%
-  bind_rows(sac_missing)
+  bind_rows(sac2190_missing,
+            ht3110_missing)
 
 status_flanders_habt <- status_flanders_sample %>%
   filter(type_resultaat == "Habitattype") %>%
-  left_join(areas_habt, by = "habitattype") %>%
+  left_join(areas_habt_sample, by = "habitattype") %>%
   left_join(maintype_integraal, by = "habitattype") 
 
 status_flanders_sbzh <- status_flanders_sample %>%
   filter(type_resultaat == "SBZH") %>%
-  left_join(areas_sac, by = c("habitattype", "sbzh")) %>%
+  left_join(areas_sac_sample, by = c("habitattype", "sbzh")) %>%
   left_join(sac_integraal, by = c("habitattype", "sbzh")) 
 
 status_flanders_subt <- status_flanders_sample %>%
   filter(type_resultaat == "Habitatsubtype") %>%
-  left_join(areas_subt, by = c("habitatsubtype")) %>%
+  left_join(areas_subt_sample, by = c("habitatsubtype")) %>%
   left_join(subtype_integraal, by = c("habitatsubtype")) 
 
 status_flanders <- status_flanders_habt %>%
@@ -330,6 +344,8 @@ status_flanders <- status_flanders_habt %>%
          area_measured_int_ha = ifelse(is.na(area_measured_int_ha), 0,  area_measured_int_ha),
          area_unknown_ha = ifelse(is.na(area_unknown_ha), 0,  area_unknown_ha),
          area_sample_ha = ifelse(is.na(area_sample_ha), 0,  area_sample_ha),
+         n_obs_int = ifelse(is.na(n_obs_int), 0, n_obs_int),
+         n_obs = n_obs + n_obs_int,
          aandeel_gunstig = round((aandeel_gunstig * area_sample_ha + area_gunstig_int_ha) / (area_measured_int_ha + area_sample_ha), 2),
          aandeel_gunstig_ulci = round((aandeel_gunstig_ulci * area_sample_ha + area_gunstig_int_ha) / (area_measured_int_ha + area_sample_ha), 2),
          aandeel_gunstig_llci = round((aandeel_gunstig_llci * area_sample_ha + area_gunstig_int_ha) / (area_measured_int_ha + area_sample_ha), 2),
@@ -339,7 +355,10 @@ status_flanders <- status_flanders_habt %>%
   select(-area_gunstig_int_ha, -area_measured_int_ha, -area_unknown_ha, -area_sample_ha) %>%
   mutate(beoordeling = ifelse(habitattype == "3110", 
                               ifelse(aandeel_gunstig < 75, "Niet goed", "Goed"),
-                              as.character(beoordeling)))
+                              ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                ifelse(aandeel_gunstig_llci >= 75, "Goed",
+                                       ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
+                                              "Onbekend")))))
 
 status_flanders %>%
   write_vc(root = output_path,
@@ -447,7 +466,8 @@ lsvi_indicator_recent <- lsvi_indicator  %>%
   mutate(weight = ifelse(is.na(weight), 1, weight))
 
 status_indicatoren <- calc_status_indicator(lsvi_indicator_recent) %>%
-  mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type)))
+  mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type))) %>%
+  arrange(habitattype)
   
 status_indicatoren %>%
   write_vc(root = output_path,
@@ -474,7 +494,7 @@ for (habt in unique(status_indicatoren$habitattype)) {
   facet_grid(criterium ~ habitattype, scales = "free_y", space = "free") + 
   coord_flip() +
   labs(x = "Indicator",
-       y = "Aandeel habitat met gunstige staat voor indicator") + 
+       y = "Aandeel habitat in goede toestand per indicator") + 
   geom_hline(aes(yintercept = 0.75), 
              colour = "black", 
              size = 0.5, 
@@ -809,7 +829,8 @@ lsvi_indicatoren <- lsvi_indicatoren_remeasured %>%
   filter(periode != "extra") %>%
   mutate(point_code = code_watersurfaces)
 
-lsvi_indicator_trend <- calc_trend_indicator(lsvi_indicatoren)
+lsvi_indicator_trend <- calc_trend_indicator(lsvi_indicatoren) %>%
+  arrange(habitattype)
 
 lsvi_indicator_trend %>%
   write_vc(root = output_path,
@@ -834,7 +855,7 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
   geom_hline(yintercept = 0, linetype = 2) +
   geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
   geom_text(size = 4, colour = "white") +
-  labs(y = "Absoluut verschil aandeel habitat gunstig (%)",
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand per indicator",
        x = "Habitattype") +
   facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
   scale_x_discrete(limits = rev) +
@@ -867,7 +888,8 @@ indicatoren_wide <- lsvi_indicatoren_remeasured %>%
 
 ```{r}
 
-diff_index_ind <- calc_diff_index_hq_indicator(indicatoren_wide, threshold = 0.1)
+diff_index_ind <- calc_diff_index_hq_indicator(indicatoren_wide, threshold = 0.1) %>%
+  arrange(habitattype)
 
 diff_index_ind %>%
   write_vc(root = output_path,
@@ -904,6 +926,7 @@ for (habt in unique(diff_index_ind$habitattype)) {
   geom_hline(yintercept = 0, linetype = "dashed")  +
   geom_hline(yintercept = c(-0.1,0.1), linetype = 3) +
     lims(y = c(-1.5, 1.5)) +
+  scale_x_discrete(limits = rev) +
   scale_color_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   theme(strip.text.y = element_text(angle = 0), 
         legend.position = "bottom", legend.box = "vertical") +

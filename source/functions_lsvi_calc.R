@@ -2142,10 +2142,10 @@ calc_status_indicator <- function(lsvi_indicator){
            Aandeel_Gunstig_LLCI = AandeelGunstig_LLCI,
            Aandeel_Gunstig_ULCI = AandeelGunstig_ULCI) %>%
     mutate(beoordeling = ifelse(is.na(Aandeel_Gunstig_ULCI), "Onbekend",
-                                ifelse(Aandeel_Gunstig_LLCI >= 75, "Gunstig",
-                                       ifelse(Aandeel_Gunstig_ULCI < 75, "Ongunstig",
+                                ifelse(Aandeel_Gunstig_LLCI >= 75, "Goed",
+                                       ifelse(Aandeel_Gunstig_ULCI < 75, "Niet goed",
                                               "Onbekend"))),
-           beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend")))
+           beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend")))
 
   colnames(status_indicatoren_tidy) <- str_to_lower(colnames(status_indicatoren_tidy))
 
