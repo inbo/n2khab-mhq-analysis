@@ -44,7 +44,11 @@ In een eerste stap bepalen we de ligging van elk meetpunt (binnen of buiten SBZH
 We maken hiervoor gebruik van de coördinaten in 'mhq_terr_refpoints'.
 
 Binnen MHQ maken we ook gebruik van meetpunten van de Vlaamse bosinventarisatie (VBI) en Scheldemonitoring (MONEOS).
-De coördinaten van deze meetpunten zijn terug te vinden in de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data).
+
+De coördinaten van MONEOS zijn terug te vinden in de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data).
+
+De coördinaten van VBI zijn niet publiek beschikbaar en deze [google drive folder](https://drive.google.com/drive/folders/1QqtZZ8e0FiKG0_IC9XZVIcZPN9UiVF1e).
+Kopieer het git2rdata bestand in de subfolder 'processed/dwh_vbi' in de folder 'n2khab-mhq-data'. 
 
 ```{r}
 sac <- read_admin_areas(dsn = "sac") %>%
