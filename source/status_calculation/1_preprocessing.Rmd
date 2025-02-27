@@ -352,33 +352,35 @@ ws_hab_type <- watersurfaces_hab_table %>%
   rename(code_watersurfaces = polygon_id) %>%
   mutate(type = ifelse(type == "3130", "3130_aom", as.character(type))) %>%
   distinct(code_watersurfaces, type) %>%
-  inner_join(ws_hab_area, by = "code_watersurfaces") %>%
-  left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present, assessment_date), by = c("code_watersurfaces", "type" )) %>%
-  left_join(watersurfaces_gh, by = "code_watersurfaces")
+  inner_join(ws_hab_area, by = "code_watersurfaces")
 
-ws_hab_type_check1 <- ws_hab_type %>%
-  filter(!is_present | #watersurface is visited and was not observed but is present according to watersurfaces_hab_v6 
-           !any_habitat) %>% 
-  filter(type != "2190_a")
+# %>%
+#   left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present, assessment_date), by = c("code_watersurfaces", "type" )) %>%
+#   left_join(watersurfaces_gh, by = "code_watersurfaces")
 
-ws_hab_type_check1 %>%
-  write_csv2("../../output/watervlakken_habt_nietgeobserveerd.csv")
-
-ws_hab_type_check2 <- ws_hab_type %>%
-  filter(area_class == ">= 50 ha" | #strata die integraal geteld worden
-         type == "3110" |
-         (type == "2190_a" & area_class == "1 ha < area <= 5 ha")) %>%
-  filter(is.na(is_present)) %>% # nog niet bezochte plassen
-  filter(!code_watersurfaces %in% sample_cycle2$polygon_id)
+# ws_hab_type_check1 <- ws_hab_type %>%
+#   filter(!is_present | #watersurface is visited and was not observed but is present according to watersurfaces_hab_v6 
+#            !any_habitat) %>% 
+#   filter(type != "2190_a")
+# 
+# ws_hab_type_check1 %>%
+#   write_csv2("../../output/watervlakken_habt_nietgeobserveerd.csv")
+# 
+# ws_hab_type_check2 <- ws_hab_type %>%
+#   filter(area_class == ">= 50 ha" | #strata die integraal geteld worden
+#          type == "3110" |
+#          (type == "2190_a" & area_class == "1 ha < area <= 5 ha")) %>%
+#   filter(is.na(is_present)) %>% # nog niet bezochte plassen
+#   filter(!code_watersurfaces %in% sample_cycle2$polygon_id)
     
 
 ws_hab_type_check1 %>%
   write_csv2("../../output/watervlakken_habt_nietgeobserveerd.csv")
 
 ws_hab_type <- ws_hab_type %>%
-  filter(is.na(is_present) #water surface is not visited but type is present according to watersurface_hab_v6
-         | is_present) %>% #water surface is visited and type was observed
-  filter(is.na(any_habitat) | any_habitat) %>% # exclude any_habitat = FALSE, meaning that is was observed that no habitat type was present
+  # filter(is.na(is_present) #water surface is not visited but type is present according to watersurface_hab_v6
+  #        | is_present) %>% #water surface is visited and type was observed
+  # filter(is.na(any_habitat) | any_habitat) %>% # exclude any_habitat = FALSE, meaning that is was observed that no habitat type was present
   filter(!code_watersurfaces %in% c("WVLBRU0368", "WVLBRU0369", "WVLBRU0374")) %>% #manual correction TO BE INCLUDED IN MHQ ASSESSMENTS TABLE
   filter(!(code_watersurfaces == "LIMHHE0002" &
            type == "3110"))

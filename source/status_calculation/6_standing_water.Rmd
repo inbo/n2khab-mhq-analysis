@@ -54,7 +54,7 @@ ht3110_verdwenen <- data.frame(code_watersurfaces = c("ANTTUR0304", "LIMHHE0002"
 mhq_su <- measurements_ws_all %>%
   mutate(type = type_observed,
          main_type = str_sub(type, 1, 4)) %>%
-  filter(ws_type %in% c("mhq_sampleframe", "mhq_sample")) %>%
+  filter(ws_type %in% c("mhq_sampleframe", "mhq_sample") | type == "3110") %>%
   anti_join(ht3110_verdwenen, by = c("code_watersurfaces", "type")) %>%
   filter(suitable_mhq) %>%
   select(id, code_watersurfaces, main_type, type, date, ws_type) %>%
@@ -73,7 +73,7 @@ check_area <- mhq_su %>%
 
 mhq_su_recent <- mhq_su %>%
   filter(!is.na(area_ha)) %>%
-  filter(ws_type == "mhq_sample") %>%
+  filter(ws_type == "mhq_sample" | type == "3110") %>%
   group_by(code_watersurfaces, type) %>%
   filter(date == max(date)) %>%
   ungroup() %>%
