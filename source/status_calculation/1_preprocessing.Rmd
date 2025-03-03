@@ -1,5 +1,17 @@
 # Preprocessing terrestrische habitats
 
+## Benodigde n2khab data
+
+Via het [n2khab package](https://github.com/inbo/n2khab/tree/v0.11.0) worden verschillende algemene datasets geladen. Hiervoor moet er een folder met de naam `n2khab_data` aanwezig zijn hoger in de maphiërarchie (startend van je working directory). Deze map heeft twee subfolders.
+
+- `10_raw` met minstens de volgende subfolders en data:
+  - `sac` met de [Habitatrichtlijn(deel)gebieden](https://zenodo.org/records/3386815)
+  - `watersurfaces` met de [wateroppervlakten](https://zenodo.org/records/14203168)
+- `20_processed` met minstens de volgende subfolders en data:
+  - `habitatmap_terr` met [deze data](https://zenodo.org/records/13886579)
+  - `watersurfaces_hab` met [deze data](https://zenodo.org/records/14621825)
+  
+  
 ## Overzicht metingen meetnet habitatkwaliteit (MHQ)
 
 Een overzicht van de metingen is terug te vinden in de repo [n2khab-sample-admin](https://github.com/inbo/n2khab-sample-admin):
@@ -314,6 +326,8 @@ De strata worden gevormd door elke combinatie van:
 Voor elk opgemeten watervlak bepalen we tot welk stratum het behoort.
 
 Vervolgens bepalen we de totale oppervlakte van elk stratum op basis van 'watersurfaces_hab_v6' en 'mhq_watersurfaces_assessments'.
+
+Voor deze bewerkingen moet er een map met de naam `output` aanwezig zijn in de `n2khab-mhq-analysis` folder.
 
 ```{r}
 
