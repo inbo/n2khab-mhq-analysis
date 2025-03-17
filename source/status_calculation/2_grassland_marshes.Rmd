@@ -555,6 +555,16 @@ mcnemar_main_type <- results_mcnemar %>%
 mcnemar_main_type %>%
   kable() %>%
   kable_styling()
+
+
+trend_local %>% 
+  filter(type_resultaat == "Habitattype") %>%
+  left_join(mcnemar_main_type, by = "habitattype") %>%
+  write_vc(root = output_path,
+           file = str_c("mc_nemar_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "schaal", "mcnemar_p_value"),
+           strict = FALSE)
+
 ```
 
 
