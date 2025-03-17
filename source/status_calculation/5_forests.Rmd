@@ -350,7 +350,7 @@ status_indicatoren <- calc_status_indicator(lsvi_indicator_recent) %>%
   
 status_indicatoren %>%
   write_vc(root = output_path,
-           file = str_c("status_indicatoren", habcat_code),
+           file = str_c("status_indicatoren_", habcat_code),
            sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
            strict = FALSE)
 ```
@@ -546,7 +546,7 @@ lsvi_habitat_trend %>%
   geom_point(size = 7) +
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0, linetype = 2) +
-  geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
+  geom_hline(yintercept = c(-0.12, 0.12), linetype = 3) +
   geom_text(size = 4, colour = "white") +
   labs(y = "Absoluut verschil aandeel habitat in goede toestand",
        x = "Habitattype") +
@@ -580,6 +580,17 @@ trend_local <- calc_trend_local(remeasured_wide)
 
 results_mcnemar <- calc_mcnemar(remeasured_wide)
 
+trend_local %>%
+  write_vc(root = output_path,
+           file = str_c("trend_local_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "trend_local"),
+           strict = FALSE)
+
+results_mcnemar %>%
+  write_vc(root = output_path,
+           file = str_c("mcnemar_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
+           strict = FALSE)
 ```
 
 ```{r}
@@ -781,7 +792,7 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
   geom_point(size = 7) +
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0, linetype = 2) +
-  geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
+  geom_hline(yintercept = c(-0.12, 0.12), linetype = 3) +
   geom_text(size = 4, colour = "white") +
   labs(y = "Absoluut verschil aandeel habitat in goede toestand per indicator",
        x = "Habitattype") +
@@ -865,4 +876,22 @@ for (habt in unique(diff_index_ind$habitattype)) {
 }
 ```
 
+```{r, eval = FALSE}
 
+lsvi_voorwaarde_remeasured <- lsvi_voorwaarde %>%
+  inner_join(select(mhq_su_remeasured, id, weight, date, periode), by = "id") %>%
+  filter(periode != "extra") %>%
+  select(point_code, main_type, periode, indicator, voorwaarde, waarde_numeric, status_voorwaarde) %>%
+  pivot_wider(names_from = periode, values_from = c(waarde_numeric, status_voorwaarde))
+
+lsvi_voorwaarde_remeasured %>%
+  filter(indicator == "verbossing") %>%
+  ggplot(aes(x = waarde_numeric_c_1, y = waarde_numeric_c_2)) +
+  geom_point(alpha = 0.3, size = 4) +
+  geom_abline(slope = 1) +
+  geom_vline(xintercept = 10, linetype = 2) +
+  geom_hline(yintercept = 10, linetype = 2) +
+  lims(x = c(0, 100), y = c(0, 100)) +
+  facet_wrap(~main_type)
+
+```

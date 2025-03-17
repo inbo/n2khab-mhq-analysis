@@ -62,6 +62,7 @@ mhq_su_recent <- mhq_su %>%
   group_by(point_code) %>%
   filter(date == max(date)) %>%
   ungroup() %>%
+  anti_join(main_type_disappeared, by = c("point_code", "main_type")) %>%
   group_by(main_type, type, in_sac) %>%
   mutate(n_pq = n_distinct(point_code)) %>%
   ungroup()  %>%
@@ -287,7 +288,7 @@ status_indicatoren <- calc_status_indicator(lsvi_indicator_recent) %>%
   
 status_indicatoren %>%
   write_vc(root = output_path,
-           file = str_c("status_indicatoren", habcat_code),
+           file = str_c("status_indicatoren_", habcat_code),
            sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
            strict = FALSE)
 ```
@@ -441,7 +442,7 @@ lsvi_habitat_trend %>%
   geom_point(size = 7) +
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0, linetype = 2) +
-  geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
+  geom_hline(yintercept = c(-0.12, 0.12), linetype = 3) +
   geom_text(size = 4, colour = "white") +
   labs(y = "Absoluut verschil aandeel habitat in goede toestand",
        x = "Habitattype") +
@@ -475,6 +476,17 @@ trend_local <- calc_trend_local(remeasured_wide)
 
 results_mcnemar <- calc_mcnemar(remeasured_wide)
 
+trend_local %>%
+  write_vc(root = output_path,
+           file = str_c("trend_local_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "trend_local"),
+           strict = FALSE)
+
+results_mcnemar %>%
+  write_vc(root = output_path,
+           file = str_c("mcnemar_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
+           strict = FALSE)
 ```
 
 ```{r}
@@ -677,7 +689,7 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
   geom_point(size = 7) +
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0, linetype = 2) +
-  geom_hline(yintercept = c(-0.1, 0.1), linetype = 3) +
+  geom_hline(yintercept = c(-0.12, 0.12), linetype = 3) +
   geom_text(size = 4, colour = "white") +
   labs(y = "Absoluut verschil aandeel habitat in goede toestand per indicator",
        x = "Habitattype") +
