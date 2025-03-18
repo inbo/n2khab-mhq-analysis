@@ -2154,7 +2154,7 @@ calc_status_indicator <- function(lsvi_indicator){
 
 ########################################################################################################
 
-model_binomial_trend <- function(analyseset, re_location = TRUE) {
+model_binomial_trend <- function(analyseset, re_location = TRUE, treshold_abs) {
 
   if (re_location) {
 
@@ -2233,7 +2233,7 @@ model_binomial_trend <- function(analyseset, re_location = TRUE) {
 
   results_abs <- results %>%
              filter(parameter == "verschil_aandeel_gunstig_abs") %>%
-             mutate(klasse = classification(llci_0.95, ulci_0.95, threshold = 0.10, reference = 0)) %>%
+             mutate(klasse = classification(llci_0.95, ulci_0.95, threshold = treshold_abs, reference = 0)) %>%
     bind_cols(meetperiode)
 
   results <- results %>%
@@ -2247,7 +2247,7 @@ model_binomial_trend <- function(analyseset, re_location = TRUE) {
 
 }
 
-calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
+calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE, threshold_abs = 0.12){
 
   results <- NULL
 
@@ -2261,7 +2261,7 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
       mutate(weight_scaled = weight/max(weight),
              status = ifelse(status, 1, 0))
 
-    result_ht <- model_binomial_trend(analyseset_ht, re_location) %>%
+    result_ht <- model_binomial_trend(analyseset_ht, re_location, threshold_abs) %>%
       mutate(type_resultaat = "Habitattype",
              n_obs = n_distinct(analyseset_ht$point_code),
              sbzh = "Binnen & Buiten",
@@ -2282,7 +2282,7 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
 
       if (nrow(analyseset_sac) >= 10) {
 
-        result_ht_sac <- model_binomial_trend(analyseset_sac, re_location) %>%
+        result_ht_sac <- model_binomial_trend(analyseset_sac, re_location, threshold_abs) %>%
           mutate(type_resultaat = "SBZH",
                  n_obs = n_distinct(analyseset_sac$point_code),
                  sbzh = ifelse(stratum, "Binnen", "Buiten"),
@@ -2311,7 +2311,7 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE){
 
         if (nrow(analyseset_type) >= 10) {
 
-          result_type <- model_binomial_trend(analyseset_type, re_location) %>%
+          result_type <- model_binomial_trend(analyseset_type, re_location, threshold_abs) %>%
             mutate(type_resultaat = "Habitatsubtype",
                    n_obs = n_distinct(analyseset_type$point_code),
                    sbzh = "Binnen & Buiten",
@@ -2707,7 +2707,7 @@ calc_diff_index_hq_indicator <- function(lsvi_indicator_wide, threshold = 0.25) 
 
 }
 
-calc_trend_indicator <- function(lsvi_indicatoren, re_location = TRUE){
+calc_trend_indicator <- function(lsvi_indicatoren, re_location = TRUE, threshold_abs = 0.12){
 
   results <- NULL
 
@@ -2735,7 +2735,7 @@ calc_trend_indicator <- function(lsvi_indicatoren, re_location = TRUE){
       analyseset_ht_ind <- analyseset_ht %>%
         filter(indicator == ind)
 
-      result_ht_ind <- model_binomial_trend(analyseset_ht_ind, re_location) %>%
+      result_ht_ind <- model_binomial_trend(analyseset_ht_ind, re_location, threshold_abs) %>%
         left_join(periode_ht, by = "periode") %>%
         mutate(type_resultaat = "Habitattype",
                n_obs = n_distinct(analyseset_ht_ind$point_code),
