@@ -195,6 +195,8 @@ type_area <- habmap_stdized_terr$habitatmap_terr_types %>%
 ```
 ## Meetpunten waar habitat verdwenen is
 
+We controleren welke opgemeten meetpunten uit de eerste meetcyclus (die dus habitat bevatten), werden herbezocht en geen habitattype meer blijken te bevatten.
+
 ```{r}
 type_is_present <- mhq_assessments %>%
   semi_join(mhq_measurements, by = c("point_code")) %>%
@@ -238,6 +240,8 @@ In de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data) vinden we:
 + de tabel 'HT31xx_header' met een overzicht van alle plassen waar een LSVI-opname werd uitgevoerd (zie repo )
 
 + de tabel 'mapping_table_inbocode' met een vertaling van de oude watervlakkencodes naar de nieuwe watervlakkencodes (die gebruikt worden in de watervlakkenlaag)
+
++ de tabel 'voortgang_mhq_aq_stilstaand_cycle2.csv' met de geobserveerde habitattypen tijdens de 2de meetcyclus
 
 
 ```{r}
@@ -294,6 +298,8 @@ We selecteren de waterlichamen die werden opgemeten in de eerste meetcyclus en d
 
 sample_cycle2 <- st_read(file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/mhq_standingwater_cycle2_2024-04-17.gpkg")) %>%
   st_drop_geometry()
+
+voortgang_cycle2 <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/voortgang_mhq_aq_stilstaand_cycle2.csv"))
 
 measurements_cycle1 <- read_vc(file = "mhq_watersurfaces_measurements_cycle1", root = file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/")) %>%
   filter(measurement_type == "biotic")
@@ -360,9 +366,20 @@ De strata worden gevormd door elke combinatie van:
 
 Voor elk opgemeten watervlak bepalen we tot welk stratum het behoort.
 
-Vervolgens bepalen we de totale oppervlakte van elk stratum op basis van 'watersurfaces_hab_v6' en 'mhq_watersurfaces_assessments'.
+Vervolgens bepalen we de totale oppervlakte van elk stratum op basis van 'watersurfaces_hab_v6' en de geobserveerder habitattypen tijdens de tweede meetcyclus/.
 
 Voor deze bewerkingen moet er een map met de naam `output` aanwezig zijn in de `n2khab-mhq-analysis` folder.
+
+
+```{r}
+
+type_absent <- voortgang_cycle2 %>%
+    separate_longer_delim(cols = type_target, delim = "; ") %>%
+    mutate(main_type_target = str_sub(type_target, 1, 4),
+           main_type_is_present = str_detect(type_observed, main_type_target)) 
+```
+
+
 
 ```{r}
 
@@ -392,45 +409,27 @@ ws_hab_area <- watersurfaces_hab_polygons %>%
                                   ifelse(area_ha <= 50, "5 ha < area < 50 ha",  ">= 50 ha")))) %>%
   select(code_watersurfaces = polygon_id, in_sac, area_ha, area_class) 
 
-watersurfaces_gh <- mhq_ws_assessments %>% #watervlakken waarvan is vastgesteld dat ze geen enkel habitattype bevatten
-  filter(!any_habitat) %>%
-  select(code_watersurfaces = polygon_id, any_habitat) %>%
-  unique()
+watersurfaces_type_observed <- voortgang_cycle2 %>%
+    separate_longer_delim(cols = type_observed, delim = "; ") %>%
+    separate_longer_delim(cols = type_observed, delim = ",") %>%
+  mutate(type_observed = str_trim(type_observed),
+         type_observed = ifelse(str_detect(screening, "gh") & !is.na(screening), "gh", type_observed),
+         type_observed = ifelse(type_observed == "3130a", "3130_aom",
+                                  ifelse(type_observed == "3130n", "3130_na", type_observed))) %>%
+  filter(!str_detect(type_observed, "\\?")) %>% #onzekere observaties niet meenemen
+  rename(code_watersurfaces = polygon_id, type= type_observed)
+  
+watersurfaces_type_present <- watersurfaces_type_observed %>%
+  filter(str_sub(type, 1, 2) == "31") %>%
+  select(code_watersurfaces, type)
 
 ws_hab_type <- watersurfaces_hab_table %>%
   rename(code_watersurfaces = polygon_id) %>%
   mutate(type = ifelse(type == "3130", "3130_aom", as.character(type))) %>%
   distinct(code_watersurfaces, type) %>%
-  inner_join(ws_hab_area, by = "code_watersurfaces")
-
-# %>%
-#   left_join(select(mhq_ws_assessments, code_watersurfaces = polygon_id, type, is_present, assessment_date), by = c("code_watersurfaces", "type" )) %>%
-#   left_join(watersurfaces_gh, by = "code_watersurfaces")
-
-# ws_hab_type_check1 <- ws_hab_type %>%
-#   filter(!is_present | #watersurface is visited and was not observed but is present according to watersurfaces_hab_v6 
-#            !any_habitat) %>% 
-#   filter(type != "2190_a")
-# 
-# ws_hab_type_check1 %>%
-#   write_csv2("../../output/watervlakken_habt_nietgeobserveerd.csv")
-# 
-# ws_hab_type_check2 <- ws_hab_type %>%
-#   filter(area_class == ">= 50 ha" | #strata die integraal geteld worden
-#          type == "3110" |
-#          (type == "2190_a" & area_class == "1 ha < area <= 5 ha")) %>%
-#   filter(is.na(is_present)) %>% # nog niet bezochte plassen
-#   filter(!code_watersurfaces %in% sample_cycle2$polygon_id)
-    
-
-# ws_hab_type_check1 %>%
-#   write_csv2("../../output/watervlakken_habt_nietgeobserveerd.csv")
-
-ws_hab_type <- ws_hab_type %>%
-  # filter(is.na(is_present) #water surface is not visited but type is present according to watersurface_hab_v6
-  #        | is_present) %>% #water surface is visited and type was observed
-  # filter(is.na(any_habitat) | any_habitat) %>% # exclude any_habitat = FALSE, meaning that is was observed that no habitat type was present
-  filter(!code_watersurfaces %in% c("WVLBRU0368", "WVLBRU0369", "WVLBRU0374")) %>% #manual correction TO BE INCLUDED IN MHQ ASSESSMENTS TABLE
+  anti_join(watersurfaces_type_observed, by = "code_watersurfaces") %>%
+  bind_rows(watersurfaces_type_present) %>%
+  inner_join(ws_hab_area, by = "code_watersurfaces") %>%
   filter(!(code_watersurfaces == "LIMHHE0002" &
            type == "3110"))
 
@@ -460,6 +459,29 @@ main_type_ws_area <- watersurfaces_hab_table %>%
   ungroup()
 
 ```
+
+## Watervlakken in het meetnet waar habitat is verdwenen
+
+```{r}
+ws_main_type_disappeared <- voortgang_cycle2 %>%
+    separate_longer_delim(cols = type_target, delim = "; ") %>%
+    mutate(main_type_target = str_sub(type_target, 1, 4),
+           main_type_is_present = str_detect(type_observed, main_type_target)) %>%
+    filter(cycle1 == "yes" & (!main_type_is_present)) %>%
+    filter(reason_not_measurable != "(grotendeels) drooggevallen" | is.na(reason_not_measurable)) %>%
+  rename(code_watersurfaces = polygon_id) %>%
+  left_join(ws_hab_area, by = "code_watersurfaces") %>%
+  rename(type = type_target)
+
+ws_main_type_disappeared %>%
+  select(code_watersurfaces, sbzh = in_sac, area_class, habitattype_verdwenen = type, habitattype_huidig = type_observed) %>%
+  datatable(rownames = FALSE,
+            filter = "top")
+
+
+```
+
+
 # Preprocessing stromende wateren
 
 ## Overzicht metingen meetnet habitatkwaliteit (MHQ)
@@ -522,6 +544,22 @@ length_3260 <- sampleframe_3260 %>%
   summarise(length_flanders_km = sum(length_m) / 1000) %>%
   ungroup()
 ```
+
+## Meetpunten waar 3260 verdwenen is
+
+```{r}
+voortgang_cycle2 <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/voortgang_mhq_aq_stromend_cycle2.csv"))
+
+ht3260_disappeared <- voortgang_cycle2 %>%
+  filter(type == "gh") %>%
+  left_join(mhq_streams_samplingframe, by = "segment_id") 
+
+ht3260_disappeared %>%
+  select(segment_id, sac_streams, type_observed = type) %>%
+  datatable(rownames = FALSE)
+```
+
+
 # Methode
 
 ## Selectie analyseset

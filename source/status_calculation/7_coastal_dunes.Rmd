@@ -180,6 +180,86 @@ lsvi_habitat_recent <- lsvi_habitat %>%
 status_flanders <- calc_status_habitat(lsvi_habitat_recent) %>%
   mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type)))
 
+```
+
+##### Integratie met 2190_a
+
+```{r}
+
+output_path_sw <- file.path(fileman_up("n2khab-mhq-data"),"processed/lsvi_mhq/standing_water/result")
+
+status_flanders_2190_a <- read_vc(
+           root = output_path_sw,
+           file = "status_habitat_sw") %>%
+  filter(habitattype == "2190")
+
+area_flanders_2190_terr <- type_area %>%
+  filter(type %in% c("2190_mp", "2190_overig")) %>%
+  mutate(main_type = str_sub(type, 1, 4)) %>%
+  group_by(main_type) %>%
+  summarise(area_ha = sum(area_ha)) %>%
+  ungroup()
+
+area_sac_2190_terr <- type_area %>%
+  filter(type %in% c("2190_mp", "2190_overig")) %>%
+  mutate(main_type = str_sub(type, 1, 4)) %>%
+  filter(in_sac) %>%
+  group_by(main_type) %>%
+  summarise(area_ha = sum(area_ha)) %>%
+  ungroup()
+
+status_flanders_2190 <- status_flanders %>%
+  bind_rows(status_flanders_2190_a) %>%
+  filter(habitattype == "2190", type_resultaat == "Habitattype") %>%
+  mutate(opp_uitspraak_ha = ifelse(habitatsubtype == "2190_mp; 2190_overig", area_flanders_2190_terr$area_ha, opp_uitspraak_ha)) %>%
+  group_by(versie, schaal, type_resultaat, habitattype, sbzh) %>%
+  summarise(habitatsubtype = str_c(habitatsubtype, collapse = "; "),
+            n_obs = sum(n_obs),
+            aandeel_gunstig = round(sum(aandeel_gunstig * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
+            aandeel_gunstig_llci = round(sum(aandeel_gunstig_llci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
+            aandeel_gunstig_ulci = round(sum(aandeel_gunstig_ulci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2)) %>%
+  ungroup() %>%
+   mutate(beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                ifelse(aandeel_gunstig_llci >= 75, "Goed",
+                                       ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
+                                              "Onbekend"))),
+          beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend")))
+
+status_sac_2190 <- status_flanders %>%
+  bind_rows(status_flanders_2190_a) %>%
+  filter(habitattype == "2190", type_resultaat == "SBZH") %>%
+  mutate(opp_uitspraak_ha = ifelse(habitatsubtype == "2190_mp; 2190_overig", area_sac_2190_terr$area_ha, opp_uitspraak_ha)) %>%
+  group_by(versie, schaal, type_resultaat, habitattype, sbzh) %>%
+  summarise(habitatsubtype = str_c(habitatsubtype, collapse = "; "),
+            n_obs = sum(n_obs),
+            aandeel_gunstig = round(sum(aandeel_gunstig * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
+            aandeel_gunstig_llci = round(sum(aandeel_gunstig_llci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
+            aandeel_gunstig_ulci = round(sum(aandeel_gunstig_ulci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2)) %>%
+  ungroup() %>%
+   mutate(beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                ifelse(aandeel_gunstig_llci >= 75, "Goed",
+                                       ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
+                                              "Onbekend"))),
+          beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend")))
+
+status_habsubt_2190_a <- status_flanders_2190_a %>%
+  filter(type_resultaat == "Habitattype",
+         habitatsubtype == "2190_a") %>%
+  mutate(type_resultaat = "Habitatsubtype")
+
+status_flanders <- status_flanders %>%
+  filter(!(habitattype == "2190" & type_resultaat %in% c("Habitattype", "SBZH"))) %>%
+  bind_rows(status_flanders_2190, status_sac_2190,
+            status_habsubt_2190_a)
+
+status_flanders <- status_flanders %>%
+  mutate(type_resultaat = factor(type_resultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
+  arrange(habitattype, type_resultaat, habitatsubtype) %>%
+  mutate(beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend")))
+
+```
+
+```{r}
 status_flanders %>%
   write_vc(root = output_path,
            file = str_c("status_habitat_", habcat_code),
@@ -286,11 +366,54 @@ status_indicatoren <- calc_status_indicator(lsvi_indicator_recent) %>%
   mutate(habitattype = factor(habitattype, levels = levels(types_habcat$type))) %>%
   arrange(habitattype)
   
-status_indicatoren %>%
-  write_vc(root = output_path,
-           file = str_c("status_indicatoren_", habcat_code),
-           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
-           strict = FALSE)
+```
+
+#### Integratie met 2190_a
+
+```{r}
+
+status_indicatoren_2190_a <- read_vc(
+           root = output_path_sw,
+           file = "status_indicatoren_sw") %>%
+  filter(habitattype == "2190")
+
+check <- status_indicatoren_2190_a %>%
+  semi_join(status_indicatoren, by = c("indicator", "habitattype")) %>%
+  distinct(criterium, indicator)
+
+status_indicatoren_2190 <- status_indicatoren %>%
+  bind_rows(status_indicatoren_2190_a) %>%
+  filter(habitattype == "2190", type_resultaat == "Habitattype") %>%
+  mutate(opp_uitspraak_ha = ifelse(habitatsubtype == "2190_mp; 2190_overig", area_flanders_2190_terr$area_ha, opp_uitspraak_ha)) %>%
+  group_by(versie, schaal, type_resultaat, habitattype, sbzh, indicator, belang, criterium) %>%
+  summarise(habitatsubtype = str_c(habitatsubtype, collapse = "; "),
+            n_obs = sum(n_obs),
+            aandeel_gunstig = round(sum(aandeel_gunstig * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
+            aandeel_gunstig_llci = round(sum(aandeel_gunstig_llci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
+            aandeel_gunstig_ulci = round(sum(aandeel_gunstig_ulci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2)) %>%
+  ungroup() %>%
+   mutate(beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                ifelse(aandeel_gunstig_llci >= 75, "Goed",
+                                       ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
+                                              "Onbekend"))),
+          beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend")))
+
+status_indicatoren_habsubt_2190_a <- status_indicatoren_2190_a %>%
+  filter(type_resultaat == "Habitattype",
+         habitatsubtype == "2190_a") %>%
+  mutate(type_resultaat = "Habitatsubtype")
+
+status_indicatoren <- status_indicatoren %>%
+  filter(!(habitattype == "2190" & type_resultaat %in% c("Habitattype", "SBZH"))) %>%
+  bind_rows(status_indicatoren_2190, status_indicatoren_habsubt_2190_a)
+
+status_indicatoren <- status_indicatoren %>%
+  mutate(type_resultaat = factor(type_resultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
+  arrange(habitattype, type_resultaat, habitatsubtype) %>%
+  mutate(beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend")))
+
+
+
 ```
 
 ```{r}
@@ -327,6 +450,16 @@ for (habt in unique(status_indicatoren$habitattype)) {
 }
 
 ```
+
+```{r}
+status_indicatoren %>%
+  write_vc(root = output_path,
+           file = str_c("status_indicatoren_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "criterium", "indicator"),
+           strict = FALSE)
+```
+
+
 
 ## Trend Vlaanderen
 

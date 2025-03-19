@@ -65,6 +65,7 @@ mhq_su_recent <- mhq_su %>%
   group_by(segment_id) %>%
   filter(date == max(date)) %>%
   ungroup() %>%
+  anti_join(ht3260_disappeared, by = "segment_id") %>%
   group_by(main_type, type, in_sac) %>%
   mutate(length_measured_km = n_distinct(segment_id) * 100 / 1000,
          n = n_distinct(segment_id)) %>%
