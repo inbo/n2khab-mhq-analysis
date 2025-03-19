@@ -77,7 +77,7 @@ mhq_su_recent <- mhq_su %>%
   group_by(code_watersurfaces, type) %>%
   filter(date == max(date)) %>%
   ungroup() %>%
-  anti_join(ws_main_type_dissapeared, by = c("code_watersurfaces", "type")) %>%
+  anti_join(ws_main_type_disappeared, by = c("code_watersurfaces", "type")) %>%
   group_by(main_type, type, in_sac, area_class) %>%
   mutate(n_stratum = n_distinct(code_watersurfaces),
          area_stratum_ha = sum(area_ha_type)) %>%
