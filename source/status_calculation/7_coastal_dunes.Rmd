@@ -609,17 +609,6 @@ trend_local <- calc_trend_local(remeasured_wide)
 
 results_mcnemar <- calc_mcnemar(remeasured_wide)
 
-trend_local %>%
-  write_vc(root = output_path,
-           file = str_c("trend_local_", habcat_code),
-           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "trend_local"),
-           strict = FALSE)
-
-results_mcnemar %>%
-  write_vc(root = output_path,
-           file = str_c("mcnemar_", habcat_code),
-           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype"),
-           strict = FALSE)
 ```
 
 ```{r}

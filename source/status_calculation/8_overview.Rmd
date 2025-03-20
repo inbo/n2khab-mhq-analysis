@@ -31,71 +31,13 @@ for (i in 1:nrow(habcat)) {
 ```
 
 ```{r}
-area_flanders_2190_terr <- type_area %>%
-  filter(type %in% c("2190_mp", "2190_overig")) %>%
-  mutate(main_type = str_sub(type, 1, 4)) %>%
-  group_by(main_type) %>%
-  summarise(area_ha = sum(area_ha)) %>%
-  ungroup()
-
-area_sac_2190_terr <- type_area %>%
-  filter(type %in% c("2190_mp", "2190_overig")) %>%
-  mutate(main_type = str_sub(type, 1, 4)) %>%
-  filter(in_sac) %>%
-  group_by(main_type) %>%
-  summarise(area_ha = sum(area_ha)) %>%
-  ungroup()
-
-status_flanders_2190 <- status_flanders %>%
-  filter(habitattype == "2190", type_resultaat == "Habitattype") %>%
-  mutate(opp_uitspraak_ha = ifelse(habitatsubtype == "2190_mp; 2190_overig", area_flanders_2190_terr$area_ha, opp_uitspraak_ha)) %>%
-  group_by(versie, schaal, type_resultaat, habitattype, sbzh) %>%
-  summarise(habitatsubtype = str_c(habitatsubtype, collapse = "; "),
-            n_obs = sum(n_obs),
-            aandeel_gunstig = round(sum(aandeel_gunstig * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
-            aandeel_gunstig_llci = round(sum(aandeel_gunstig_llci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
-            aandeel_gunstig_ulci = round(sum(aandeel_gunstig_ulci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2)) %>%
-  ungroup() %>%
-   mutate(beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
-                                ifelse(aandeel_gunstig_llci >= 75, "Gunstig",
-                                       ifelse(aandeel_gunstig_ulci < 75, "Ongunstig",
-                                              "Onbekend"))),
-          beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend")))
-
-status_sac_2190 <- status_flanders %>%
-  filter(habitattype == "2190", type_resultaat == "SBZH") %>%
-  mutate(opp_uitspraak_ha = ifelse(habitatsubtype == "2190_mp; 2190_overig", area_sac_2190_terr$area_ha, opp_uitspraak_ha)) %>%
-  group_by(versie, schaal, type_resultaat, habitattype, sbzh) %>%
-  summarise(habitatsubtype = str_c(habitatsubtype, collapse = "; "),
-            n_obs = sum(n_obs),
-            aandeel_gunstig = round(sum(aandeel_gunstig * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
-            aandeel_gunstig_llci = round(sum(aandeel_gunstig_llci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2),
-            aandeel_gunstig_ulci = round(sum(aandeel_gunstig_ulci * opp_uitspraak_ha) / sum(opp_uitspraak_ha), 2)) %>%
-  ungroup() %>%
-   mutate(beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
-                                ifelse(aandeel_gunstig_llci >= 75, "Gunstig",
-                                       ifelse(aandeel_gunstig_ulci < 75, "Ongunstig",
-                                              "Onbekend"))),
-          beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend")))
-
-status_habsubt_2190_a <- status_flanders %>%
-  filter(type_resultaat == "Habitattype",
-         habitatsubtype == "2190_a") %>%
-  mutate(type_resultaat = "Habitatsubtype")
-
-status_flanders <- status_flanders %>%
-  filter(!(habitattype == "2190" & type_resultaat %in% c("Habitattype", "SBZH"))) %>%
-  bind_rows(status_flanders_2190, status_sac_2190,
-            status_habsubt_2190_a)
-```
-
-```{r}
 
 status_flanders <- status_flanders %>%
   mutate(type_resultaat = factor(type_resultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
-  arrange(habitattype, type_resultaat, habitatsubtype)
+  arrange(habitattype, type_resultaat, habitatsubtype) %>%
+  filter(!(habitatsubtype == "2190_a" & type_resultaat %in% c("Habitattype", "SBZH")))
 
-write_csv2(status_flanders, "../output/status_habitatkwaliteit_2025-24-02.csv")
+write_csv2(status_flanders, "../output/status_habitatkwaliteit.csv")
 
 trend_flanders <- trend_flanders %>%
   mutate(type_resultaat = factor(type_resultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
@@ -103,7 +45,7 @@ trend_flanders <- trend_flanders %>%
 
 trend_flanders %>%
   filter(parameter == "verschil_aandeel_gunstig_abs") %>%
-write_csv2("../output/trend_habitatkwaliteit_2025-24-02.csv")
+write_csv2("../output/trend_habitatkwaliteit.csv")
 ```
 
 
@@ -117,10 +59,10 @@ status_flanders %>%
 
 ```{r, fig.height=7, fig.width=8}
 
-beoordeling_colors <- c("Gunstig" = inbo_lichtgroen, "Ongunstig" = inbo_rood, "Onbekend" = inbo_grijs)
+beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
 
 status_flanders %>%
-  mutate(beoordeling = factor(beoordeling, levels = c("Gunstig", "Ongunstig", "Onbekend"))) %>%
+  mutate(beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend"))) %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
   filter(sbzh != "Buiten") %>%
   mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
