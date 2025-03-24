@@ -29,6 +29,8 @@ overzicht_missing_belang <- geefInvoervereisten(Kwaliteitsniveau = 1,Versie = "V
 #write_csv2(overzicht_missing_belang, "../../output/missing_belang.csv")
 
 check_verdroging <- geefSoortenlijstVoorIDs("178")
+
+check <- geefVertaallijst(ConnectieLSVIhabitats = ConnectiePool)
 ```
 
 ```{r}
@@ -748,7 +750,7 @@ correct_indicator_sleutelsoorten_2130_hd <- correct_voorwaarde_sleutelsoorten_21
   ungroup()
 
 Resultaat_indicator <- lsvi_cd$Resultaat_indicator %>%
-  filter(!str_detect(Indicator, "sleutelsoorten van")) %>%
+  filter(!(str_detect(Indicator, "sleutelsoorten van") & Habitattype == "2130_hd")) %>%
   bind_rows(correct_indicator_sleutelsoorten_2130_hd) %>%
   mutate(Verschilscore = round(pmin(Verschilscore, 1), 4),
          doelbereik = round(pmin(Verschilscore, 0) + 1, 4))
