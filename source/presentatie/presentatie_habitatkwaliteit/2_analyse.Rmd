@@ -1,0 +1,278 @@
+# Analyses
+
+## Data
+
+- Gegevens ingezameld door INBO: INBOVEG databank 
+  - identificatie meetpunt, coördinaten: `inboddb::get_inboveg_header`
+  - habitattype: `inboddb::get_inboveg_classifier`
+  - bedekking soorten: `inboddb::get_inboveg_recording`
+  - structuurvariabelen: `inboddb::get_inboveg_qualifier`
+  
+- Gegevens ingezameld door ANB: lokaal firebird-bestand (export uit Fieldmap)
+
+- Indicatoren afgeleid uit GIS-lagen :
+  - minimum structuurareaal bossen
+  - bosleeftijd
+
+- [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data) repo
+  - inlezen data
+  - data wrangling
+  - data opslaan als `git2rdata` bestand
+  
+## Berekening LSVI per opname
+
+```{r, echo=FALSE}
+library(LSVI)
+library(n2khab)
+library(git2rdata)
+
+path_input <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/grassland_marsh/input")
+
+id_select <- "3863478_2020-09-10"
+
+data_habitat <- read_vc("data_habitat_gr_bm", path_input) %>%
+  filter(ID == id_select) %>%
+  select(ID, Habitattype) %>%
+  as.data.frame()
+
+data_voorwaarden <- read_vc("data_voorwaarden_gr_bm", path_input) %>%
+  filter(ID == id_select) %>%
+  select(-record_id, -plot_type) %>%
+  as.data.frame()
+
+data_soortenkenmerken <- read_vc("data_soorten_kenm_gr_bm", path_input) %>%
+  filter(ID == id_select) %>%
+  select(-record_id) %>%
+  as.data.frame()
+```
+
+```{r}
+library(LSVI)
+maakConnectiePool()
+result_lsvi <- berekenLSVIbasis(Data_habitat = data_habitat, 
+                                Data_soortenKenmerken = data_soortenkenmerken,
+                                Data_voorwaarden = data_voorwaarden, 
+                                Aggregatiemethode = "RapportageHR",
+                                Versie = "Versie 3")
+```
+
+- input `data_habitat`
+
+```{r, echo=FALSE}
+data_habitat %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling()
+```
+
+## Berekening LSVI per opname
+
+- input `data_soortenkenmerken`
+
+```{r, echo=FALSE}
+data_soortenkenmerken %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(font_size = 7)
+```
+
+## Berekening LSVI per opname
+
+- input `data_voorwaarden`
+
+```{r, echo=FALSE}
+data_voorwaarden %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(font_size = 7)
+```
+
+## Berekening LSVI per opname
+
+- resultaat per voorwaarde: `result_lsvi$Resultaat_detail`
+
+
+```{r, echo=FALSE}
+result_lsvi$Resultaat_detail %>%
+  select(Habitattype, Indicator, Voorwaarde, Waarde, Operator, Referentiewaarde, Operator, Status_voorwaarde) %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(font_size = 7)
+```
+
+## Berekening LSVI per opname
+
+- resultaat per indicator: `result_lsvi$Resultaat_indicator`
+
+```{r, echo=FALSE}
+result_lsvi$Resultaat_indicator %>%
+  select(Habitattype, Criterium, Indicator, Belang, Status_indicator) %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(font_size = 7)
+```
+
+## Berekening LSVI per opname
+
+- resultaat per criterium: `result_lsvi$Resultaat_criterium`
+
+```{r, echo=FALSE}
+result_lsvi$Resultaat_criterium %>%
+  select(Habitattype, Criterium, Status_criterium) %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(font_size = 8)
+```
+
+- globaal resultaat: `result_lsvi$Resultaat_globaal`
+
+```{r, echo=FALSE}
+result_lsvi$Resultaat_globaal %>%
+  select(Habitattype, Versie, Aggregatiemethode, Status) %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling(font_size = 8)
+```
+
+## Berekening kwaliteitsindex per meetpunt
+
+```{r, echo = FALSE}
+sim_indicator <- tibble(indicator = c("bedekking invasieve exoten", "bedekking vergrassing", "aantal sleutelsoorten"),
+                        type_indictator = c("negatief", "negatief", "positief"),
+                        min_waarde = 0,
+                        max_waarde = c(100, 100, 12),
+                        referentiewaarde = c(10, 50, 3),
+                        operator = c("<=", "<=", ">=")
+                        ) %>%
+  left_join(bind_rows(tibble(indicator = "bedekking invasieve exoten",
+                             waarde = seq(0, 100, 1)),
+                      tibble(indicator = "bedekking vergrassing",
+                             waarde = seq(0, 100, 1)),
+                      tibble(indicator = "aantal sleutelsoorten",
+                             waarde = seq(0, 12, 1))),
+            by = "indicator")
+
+sim_indicator_ind <- sim_indicator %>%
+  mutate(index = ifelse(type_indictator == "negatief", 
+                                  ifelse(waarde <= referentiewaarde, 
+                                         (referentiewaarde - waarde) / (referentiewaarde - min_waarde),
+                                         -(waarde - referentiewaarde) / (max_waarde - referentiewaarde)),
+                                  ifelse(waarde >= referentiewaarde, 
+                                         (waarde - referentiewaarde) / (max_waarde - referentiewaarde),
+                                         -(referentiewaarde - waarde) / (referentiewaarde - min_waarde))),
+         toestand_binair = ifelse(type_indictator == "negatief", 
+                                ifelse(waarde <= referentiewaarde, 1, 0),
+                                ifelse(waarde >= referentiewaarde, 1, 0))) %>%
+  pivot_longer(cols = c(index, toestand_binair),
+               names_to = "var",
+               values_to = "habitatkwaliteit")
+  
+ref <- sim_indicator_ind %>%
+  distinct(indicator, referentiewaarde)
+                                  
+```
+
+- beoordeling LSVI-indicator
+  - binaire uitspraak gunstig of ongunstig
+  - weining nuance, veranderingen minder snel gedetecteerd
+  
+
+```{r, echo=FALSE}
+sim_indicator_ind %>%
+  filter(var == "toestand_binair") %>%
+  ggplot(aes(x = waarde, y = habitatkwaliteit, group = var, colour = var)) +
+  geom_line(alpha = 0.5) +
+  geom_vline(data = ref, aes(xintercept = referentiewaarde), linetype = 2) +
+  facet_wrap(~indicator, scales = "free", ncol = 2) 
+```
+
+## Berekening kwaliteitsindex per meetpunt
+
+```{r, echo=FALSE}
+tibble(
+  indicatortype = c(rep("positief",3), rep("negatief", 3)),
+  inidcatorwaarde = rep(c("waarde = min. waarde",
+                      "waarde = referentiewaarde", 
+                      "waarde = max. waarde"), 2),
+  indexwaarde = c(-1, 0, 1, 1, 0, -1)) %>%
+  kable(booktabs = TRUE) %>%
+  kable_styling()
+```
+
+- tussenliggende waarden via interpolatie
+- globale kwaliteitsindex
+  - gemiddelde indexwaarde van indicatoren
+  - harmonisch gemiddelde indexwaarde van indicatoren
+  
+## Berekening kwaliteitsindex per meetpunt
+
+```{r, echo=FALSE, message=FALSE}
+sim_indicator_ind %>%
+  ggplot(aes(x = waarde, y = habitatkwaliteit, group = var, colour = var)) +
+  geom_line(alpha = 0.5) +
+  geom_vline(data = ref, aes(xintercept = referentiewaarde), linetype = 2) +
+  facet_wrap(~indicator, scales = "free", ncol = 2) 
+```
+```{r, echo = FALSE}
+ind1 <- sim_indicator_ind %>%
+  filter(var == "index") %>%
+  filter(indicator == "aantal sleutelsoorten") %>%
+  mutate(plot_id = 1:n(),
+         indicator_short = "sleutelsoorten") %>%
+  select(plot_id, indicator_short, waarde, habitatkwaliteit) %>%
+  pivot_wider(names_from = indicator_short,
+              values_from = c(waarde, habitatkwaliteit))
+
+ind2 <- sim_indicator_ind %>%
+  filter(var == "index") %>%
+  filter(indicator == "bedekking invasieve exoten" &
+           (waarde %in% c(0 , 5, 10, 50, 100))) %>%
+  mutate(indicator_short = "inv_exoten") %>%
+   expand(nesting(indicator_short, waarde, habitatkwaliteit), plot_id = 1:nrow(ind1)) %>%
+  pivot_wider(names_from = indicator_short,
+              values_from = c(waarde)) %>%
+  rename(habitatkwaliteit_inv_exoten = habitatkwaliteit, waarde_inv_exoten = inv_exoten)
+
+ind3 <- sim_indicator_ind %>%
+  filter(var == "index") %>%
+  filter(indicator == "bedekking vergrassing" &
+           (waarde %in% c(0 , 5, 10, 50, 100))) %>%
+  mutate(indicator_short = "vergrassing") %>%
+   expand(nesting(indicator_short, waarde, habitatkwaliteit), plot_id = 1:nrow(ind1)) %>%
+  pivot_wider(names_from = indicator_short,
+              values_from = c(waarde)) %>%
+  rename(habitatkwaliteit_vergrassing = habitatkwaliteit, waarde_vergrassing = vergrassing)
+ 
+comb <- ind1 %>%
+  left_join(ind2, by = "plot_id") %>%
+  left_join(ind3, by = "plot_id") %>%
+  pivot_longer(starts_with("habitatkwaliteit"),
+               names_to = "indicator",
+               values_to = "habitatkwaliteit") %>%
+  mutate(indicator = str_remove(indicator, "habitatkwaliteit_"))
+  
+sim_index_mean <- comb %>%
+  group_by(plot_id, waarde_sleutelsoorten, waarde_inv_exoten, waarde_vergrassing) %>%
+  summarise(index_mean = mean(habitatkwaliteit),
+            index_harm_mean = 1 / (mean(1 / ((habitatkwaliteit + 1) /2))) * 2 - 1) %>%
+  ungroup()
+```
+
+
+## Berekening kwaliteitsindex per meetpunt
+
+```{r, echo = FALSE}
+sim_index_mean %>%
+  ggplot(aes(x = waarde_sleutelsoorten, y = index_mean, group = waarde_inv_exoten, colour = factor(waarde_inv_exoten))) +
+  geom_line() +
+  facet_wrap(~ "bedekking vergrassing" + waarde_vergrassing) +
+  labs(colour = "bedekking invasieve exoten", x = "aantal sleutelsoorten")
+```
+```{r, eval = FALSE}
+sim_index_mean %>%
+  ggplot(aes(x = waarde_sleutelsoorten, y = index_harm_mean, group = waarde_inv_exoten, colour = factor(waarde_inv_exoten))) +
+  geom_line() +
+  facet_wrap(~waarde_vergrassing)
+```
+
+
+
+## Berekening toestand habitatkwaliteit Vlaamse schaal
+
+## Berekening trend habitatkwaliteit
+
+# Integratie resultaten in HR rapportage
+
