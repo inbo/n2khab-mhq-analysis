@@ -654,7 +654,7 @@ trend_flanders <- bind_rows(
 
 lsvi_habitat <- lsvi_habitat_remeasured %>%
   filter(periode != "extra") %>%
-  mutate(point_code = "code_watersurfaces")
+  mutate(point_code = code_watersurfaces)
 
 lsvi_habitat_trend <- calc_trend_habitat(lsvi_habitat)
   
