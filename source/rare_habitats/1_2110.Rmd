@@ -1,0 +1,169 @@
+# Habitat 2110
+
+## Data
+
+Het bestand '2023_Kartering2110_Kwaliteit' bevat een beoordeling van de LSVI indicatoren van habitattype 2110 per gekarteerde polygoon.
+
+Het bestand bevindt zich in deze [google drive folder](https://drive.google.com/drive/folders/1Oj-IMYIP_FajNcr1w462ImGDI0mUUWSL).
+
+```{r}
+data_path <- file.path(fileman_up("n2khab-mhq-data"), "raw/habitat_integraal")
+
+data_2110 <- read_csv2(file.path(data_path, "2023_Kartering2110_Kwaliteit.csv"))
+
+map_2110 <- st_read(file.path(data_path, "2110Campagne_v2023.shp"), crs = 31370)
+
+```
+## LSVI 2110
+
+```{r}
+lsvi_2110 <- geefInvoervereisten(Versie = "Versie 3", Kwaliteitsniveau = 1, Habitattype = "2110") %>%
+  select(Habitattype, Criterium, Indicator, Belang, Voorwaarde, Beoordeling)
+
+belang_2110 <- lsvi_2110 %>%
+  distinct(Criterium, Indicator, Belang) %>%
+  select(indicator = Indicator,
+         belang = Belang,
+         criterium = Criterium)
+```
+
+## LSVI per gekarteerde polygoon
+
+```{r}
+
+sbzh <- read_admin_areas(dsn = "sac") %>%
+  select(sac_code)
+
+map_2110_area_tot <- map_2110 %>%
+  select(ID_2110) %>%
+  mutate(area_tot = round(drop_units(st_area(geometry)), 1)) %>%
+  st_drop_geometry()
+
+map_2110_area_sbzh <- map_2110 %>%
+  st_intersection(sbzh) %>%
+  select(ID_2110, sac_code) %>%
+  mutate(area_sbzh = round(drop_units(st_area(geometry)), 1)) %>%
+  st_drop_geometry()
+
+map_2110_area <- map_2110_area_tot %>%
+  left_join(map_2110_area_sbzh, by = "ID_2110") %>%
+  mutate(inside_sbzh = ifelse(is.na(area_sbzh), 0, area_sbzh),
+         outside_sbzh = area_tot - inside_sbzh) %>%
+  select(ID_2110, inside_sbzh, outside_sbzh) %>%
+  pivot_longer(cols = c(inside_sbzh, outside_sbzh),
+               names_to = "sbzh",
+               values_to = "area_m2") %>%
+  mutate(area_ha = area_m2/10000,
+         sbzh = sbzh == "inside_sbzh") %>%
+  select(-area_m2)
+  
+```
+
+
+```{r}
+lsvi_indicatoren_2110 <- data_2110 %>%
+  select(ID_2110, recreatie = REC_CR, dynamiek = Dyn_CR, oppervlakte = OPP_CR, "structuurvormende sleutelsoorten" = STRUCT_CR, "aanvullende sleutelsoorten" = Aan_Sp_CR) %>%
+  pivot_longer(cols = c("recreatie", "dynamiek", "oppervlakte", "structuurvormende sleutelsoorten", "aanvullende sleutelsoorten"), 
+               names_to = "indicator", 
+               values_to = "status_indicator") %>%
+  mutate(status_indicator = status_indicator == "OK") %>%
+  left_join(belang_2110, by = "indicator") %>%
+  left_join(map_2110_area, by = "ID_2110")
+  
+lsvi_globaal_2110 <- lsvi_indicatoren_2110 %>%
+  group_by(ID_2110, sbzh, area_ha) %>%
+  summarise(n_gunstig = sum(status_indicator),
+            n_ind = n_distinct(indicator),
+            n_zb_ongunstig = sum(status_indicator == FALSE & belang == "zb"),
+            any_ongunstig = any(status_indicator == FALSE & belang == "zb"),
+            aandeel_gunstig = round(n_gunstig / n_ind * 100, 4),
+            status =  (!any_ongunstig) & aandeel_gunstig > 50) %>%
+  ungroup()
+```
+
+## Aandeel gunstig
+
+```{r}
+status_vl_2110 <- lsvi_globaal_2110 %>%
+  mutate(habitattype = "2110") %>%
+  group_by(habitattype) %>%
+  summarise(aandeel_gunstig = sum(area_ha * status) / sum(area_ha) * 100,
+            opp_gunstig_ha = sum(area_ha * status),
+            opp_ongunstig_ha = sum(area_ha * (!status))) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "Habitattype",
+         sbzh = "Binnen & Buiten")
+
+status_sbzh_2110 <- lsvi_globaal_2110 %>%
+  filter(sbzh) %>%
+  mutate(habitattype = "2110") %>%
+  group_by(habitattype) %>%
+  summarise(aandeel_gunstig = sum(area_ha * status) / sum(area_ha) * 100,
+            opp_gunstig_ha = sum(area_ha * status),
+            opp_ongunstig_ha = sum(area_ha * (!status))) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "SBZH",
+         sbzh = "Binnen")
+  
+status_habitat_2110 <- status_vl_2110 %>%
+  bind_rows(status_sbzh_2110) %>%
+  mutate(versie = "Versie 3",
+         schaal = "Vlaanderen",
+         opp_onbekend_ha = 0,
+         aandeel_gunstig_min = aandeel_gunstig,
+         aandeel_gunstig_max = aandeel_gunstig,
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed"))) %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+
+write_csv2(status_habitat_2110, "../output/status_habitat_2110.csv")
+
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/coastal_dunes/result")
+
+status_habitat_2110 %>%
+  write_vc("status_habitat_2110", root = output_path, sorting = "type_resultaat")
+```
+
+```{r}
+status_indicator_vl_2110 <- lsvi_indicatoren_2110 %>%
+  mutate(habitattype = "2110") %>%
+  group_by(habitattype, criterium, indicator, belang) %>%
+  summarise(aandeel_gunstig = sum(area_ha * status_indicator, na.rm = TRUE) / sum(area_ha * (!is.na(status_indicator))) * 100,
+            opp_gunstig_ha = sum(area_ha * status_indicator, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(area_ha * (!status_indicator), na.rm = TRUE),
+            opp_onbekend_ha = sum(area_ha * is.na(status_indicator)),
+            opp_totaal_ha = sum(area_ha)) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "Habitattype",
+         sbzh = "Binnen & Buiten",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_indicator_sbzh_2110 <- lsvi_indicatoren_2110 %>%
+  mutate(habitattype = "2110") %>%
+  filter(sbzh) %>%
+  group_by(habitattype, criterium, indicator, belang) %>%
+  summarise(aandeel_gunstig = sum(area_ha * status_indicator, na.rm = TRUE) / sum(area_ha * (!is.na(status_indicator))) * 100,
+            opp_gunstig_ha = sum(area_ha * status_indicator, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(area_ha * (!status_indicator), na.rm = TRUE),
+            opp_onbekend_ha = sum(area_ha * is.na(status_indicator)),
+            opp_totaal_ha = sum(area_ha)) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "SBZH",
+         sbzh = "Binnen",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_indicator_2110 <- status_indicator_vl_2110 %>%
+  bind_rows(status_indicator_sbzh_2110) %>%
+  mutate(versie = "Versie 3",
+         schaal = "Vlaanderen") %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+
+status_indicator_2110 %>%
+  write_vc("status_indicatoren_2110", root = output_path, sorting = c("type_resultaat", "indicator"))
+```

@@ -1,0 +1,20 @@
+Version: 1.0
+ProjectId: 39dccce6-8b33-4753-80bf-e6353993b66c
+
+RestoreWorkspace: Default
+SaveWorkspace: Default
+AlwaysSaveHistory: Default
+
+EnableCodeIndexing: Yes
+UseSpacesForTab: Yes
+NumSpacesForTab: 2
+Encoding: UTF-8
+
+RnwWeave: knitr
+LaTeX: XeLaTeX
+
+AutoAppendNewline: Yes
+StripTrailingWhitespace: Yes
+
+BuildType: Website
+WebsitePath: C:/rprojecten/n2khab-mhq-analysis/source/status_calculation

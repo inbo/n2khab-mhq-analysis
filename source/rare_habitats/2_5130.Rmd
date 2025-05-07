@@ -1,0 +1,312 @@
+# Habitat 5130
+
+## Data
+
+Het bestand '5130_lsvi_2024' bevat een beoordeling van de LSVI indicatoren van habitattype 5130 per gekarteerde polygoon en per gebied.
+
+Het bestand bevindt zich in deze [google drive folder](https://drive.google.com/drive/folders/1ZYfAx-d9_98XzSFRoMz3mH0jivS-b91K).
+
+```{r}
+data_path <- file.path(fileman_up("n2khab-mhq-data"), "raw/habitat_integraal")
+
+data_5130_habitatvlek <- read_csv2(file.path(data_path, "kartering5130_kwaliteit_waarden.csv"))
+
+data_5130_gebied <- read_csv2(file.path(data_path, "kartering5130_kwaliteit_status.csv"))
+
+colnames(data_5130_gebied) <- str_to_lower(colnames(data_5130_gebied))
+
+colnames(data_5130_habitatvlek) <- str_to_lower(colnames(data_5130_habitatvlek))
+```
+
+## LSVI 5130
+
+```{r}
+lsvi_5130 <- geefInvoervereisten(Versie = "Versie 3", Kwaliteitsniveau = 1, Habitattype = "5130") %>%
+  select(Habitattype, Criterium, Indicator, Belang, Voorwaarde, Beoordeling)
+
+belang_5130 <- lsvi_5130 %>%
+  distinct(Criterium, Indicator, Belang) %>%
+  select(criterium = Criterium,
+         indicator = Indicator,
+         belang = Belang)
+```
+
+
+## Analyse per gebied
+
+### LSVI
+
+```{r}
+lsvi_indicatoren_5130_gebied <- data_5130_gebied %>%
+  rename(locatie = `voor alle locaties, einduitspraak`, opp_ha = `opp. (ha)`) %>%
+  mutate(sbzh = !str_detect(locatie, "Kattevennen")) %>% # enkel Kattevennen ligt buiten SBZH 
+  pivot_longer(cols = belang_5130$indicator, 
+               names_to = "indicator", 
+               values_to = "status_indicator") %>%
+  mutate(status_indicator = ifelse(status_indicator == "gunstig", TRUE,
+                                   ifelse(status_indicator == "ongunstig", FALSE, NA))) %>%
+  left_join(belang_5130, by = "indicator")
+  
+lsvi_globaal_5130_gebied <- lsvi_indicatoren_5130_gebied %>%
+  group_by(locatie, sbzh, opp_ha) %>%
+  summarise(n_gunstig = sum(status_indicator),
+            n_ind = n_distinct(indicator),
+            n_zb_ongunstig = sum(status_indicator == FALSE & belang == "zb"),
+            any_ongunstig = any(status_indicator == FALSE & belang == "zb"),
+            aandeel_gunstig = round(n_gunstig / n_ind * 100, 4),
+            status =  ifelse(any_ongunstig, FALSE,
+                             aandeel_gunstig > 50)) %>%
+  ungroup()
+```
+
+### Aandeel gunstig
+
+```{r}
+status_vl_5130_gebied <- lsvi_globaal_5130_gebied %>%
+  mutate(habitattype = "5130",
+         opp_totaal_ha = sum(opp_ha)) %>%
+  group_by(habitattype, opp_totaal_ha) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status, na.rm = TRUE) / sum(opp_ha * (!is.na(status))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status))) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "Habitattype",
+         sbzh = "Binnen & Buiten",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_sbzh_5130_gebied <- lsvi_globaal_5130_gebied %>%
+  filter(sbzh) %>%
+  mutate(habitattype = "5130",
+         opp_totaal_ha = sum(opp_ha)) %>%
+  group_by(habitattype, opp_totaal_ha) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status, na.rm = TRUE) / sum(opp_ha * (!is.na(status))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status))) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "SBZH",
+         sbzh = "Binnen",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed"))) 
+  
+status_habitat_5130 <- status_vl_5130_gebied %>%
+  bind_rows(status_sbzh_5130_gebied) %>%
+  mutate(versie = "Versie 3",
+         schaal = "Vlaanderen") %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+
+write_csv2(status_habitat_5130, "../output/status_habitat_kartering.csv")
+
+output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/heath_inland_dunes/result")
+
+status_habitat_5130 %>%
+  write_vc("status_habitat_5130", root = output_path, sorting = "type_resultaat")
+```
+
+```{r}
+status_indicator_vl_5130_gebied <- lsvi_indicatoren_5130_gebied %>%
+  mutate(habitattype = "5130") %>%
+  group_by(habitattype, criterium, indicator, belang) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status_indicator, na.rm = TRUE) / sum(opp_ha * (!is.na(status_indicator))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status_indicator, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status_indicator), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status_indicator)),
+            opp_totaal_ha = sum(opp_ha)) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "Habitattype",
+         sbzh = "Binnen & Buiten",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_indicator_sbzh_5130_gebied <- lsvi_indicatoren_5130_gebied %>%
+  filter(sbzh) %>%
+  mutate(habitattype = "5130") %>%
+  group_by(habitattype, criterium, indicator, belang) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status_indicator, na.rm = TRUE) / sum(opp_ha * (!is.na(status_indicator))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status_indicator, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status_indicator), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status_indicator)),
+            opp_totaal_ha = sum(opp_ha)) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "SBZH",
+         sbzh = "Binnen",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_indicator_5130 <- status_indicator_vl_5130_gebied %>%
+  bind_rows(status_indicator_sbzh_5130_gebied) %>%
+  mutate(versie = "Versie 3",
+         schaal = "Vlaanderen") %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+  
+write_csv2(status_indicator_5130, "../output/status_indicator_kartering.csv")
+
+status_indicator_5130 %>%
+  write_vc("status_indicatoren_5130", root = output_path, sorting = c("type_resultaat", "indicator"))
+```
+
+## Analyse per habitatvlek
+
+### LSVI
+
+```{r}
+lsvi_indicatoren_habitatvlek_kwant <- data_5130_habitatvlek %>%
+  rename(locatie = `locaties met lsvi bepaling in 2024`, opp_ha = `opp. (ha)`) %>%
+  select(locatie, opp_ha, vergrassing, verbossing, verruiging) %>%
+  pivot_longer(cols = c(vergrassing, verbossing, verruiging), 
+               names_to = "indicator", 
+               values_to = "waarde_indicator") %>%
+  mutate(waarde_indicator = as.numeric(str_remove(waarde_indicator, "%")),
+         status_indicator = ifelse(indicator == "vergrassing", waarde_indicator <= 50,
+                                   ifelse(indicator == "verruiging", waarde_indicator <= 10,
+                                          ifelse(indicator == "verbossing", waarde_indicator <= 30, NA)))) 
+
+lsvi_indicatoren_habitatvlek_kwal <- data_5130_habitatvlek %>%
+  rename(locatie = `locaties met lsvi bepaling in 2024`, opp_ha = `opp. (ha)`) %>%
+  select(locatie, opp_ha, verjonging, populatiegrootte, sexratio) %>%
+  pivot_longer(cols = c(verjonging, populatiegrootte, sexratio), 
+               names_to = "indicator", 
+               values_to = "status_indicator") %>%
+  mutate(status_indicator = ifelse(indicator == "populatiegrootte", status_indicator != "niet OK",
+                                   ifelse(indicator == "sexratio", status_indicator == "ok",
+                                          ifelse(indicator == "verjonging", status_indicator == "ok", NA)))) 
+
+lsvi_indicatoren_habitatvlek <- lsvi_indicatoren_habitatvlek_kwant %>%
+  bind_rows(lsvi_indicatoren_habitatvlek_kwal) %>%
+  left_join(belang_5130, by = "indicator")
+  
+lsvi_indicatoren_andergebied <- lsvi_indicatoren_5130_gebied %>%
+  filter(is.na(jaar))
+
+lsvi_indicatoren_habitatvlek <- lsvi_indicatoren_habitatvlek %>%
+  bind_rows(lsvi_indicatoren_andergebied) %>%
+  mutate(sbzh = !str_detect(locatie, "Kattevennen")) # enkel Kattevennen ligt buiten SBZH 
+
+lsvi_globaal_habitatvlek <- lsvi_indicatoren_habitatvlek %>%
+  group_by(locatie, sbzh, opp_ha) %>%
+  summarise(n_gunstig = sum(status_indicator),
+            n_ind = n_distinct(indicator),
+            n_zb_ongunstig = sum(status_indicator == FALSE & belang == "zb"),
+            any_ongunstig = any(status_indicator == FALSE & belang == "zb"),
+            aandeel_gunstig = round(n_gunstig / n_ind * 100, 4),
+            status =  ifelse(any_ongunstig, FALSE,
+                             aandeel_gunstig > 50)) %>%
+  ungroup()
+```
+
+### Aandeel gunstig
+
+```{r}
+status_vl_5130_habitatvlek <- lsvi_globaal_habitatvlek %>%
+  mutate(habitattype = "5130",
+         opp_totaal_ha = sum(opp_ha)) %>%
+  group_by(habitattype, opp_totaal_ha) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status, na.rm = TRUE) / sum(opp_ha * (!is.na(status))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status))) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "Habitattype",
+         sbzh = "Binnen & Buiten",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_sbzh_5130_habitatvlek <- lsvi_globaal_habitatvlek %>%
+  filter(sbzh) %>%
+  mutate(habitattype = "5130",
+         opp_totaal_ha = sum(opp_ha)) %>%
+  group_by(habitattype, opp_totaal_ha) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status, na.rm = TRUE) / sum(opp_ha * (!is.na(status))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status))) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "SBZH",
+         sbzh = "Binnen",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed"))) 
+  
+status_habitat_5130_habitatvlek <- status_vl_5130_habitatvlek %>%
+  bind_rows(status_sbzh_5130_habitatvlek) %>%
+  mutate(versie = "Versie 3",
+         schaal = "Vlaanderen") %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+
+write_csv2(status_habitat_5130_habitatvlek, "../output/status_habitat_5130_habitatvlek.csv")
+```
+
+```{r}
+status_indicator_vl_5130_habitatvlek <- lsvi_indicatoren_habitatvlek %>%
+  mutate(habitattype = "5130") %>%
+  group_by(habitattype, criterium, indicator, belang) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status_indicator, na.rm = TRUE) / sum(opp_ha * (!is.na(status_indicator))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status_indicator, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status_indicator), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status_indicator)),
+            opp_totaal_ha = sum(opp_ha)) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "Habitattype",
+         sbzh = "Binnen & Buiten",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_indicator_sbzh_5130_habitatvlek <- lsvi_indicatoren_habitatvlek %>%
+  filter(sbzh) %>%
+  mutate(habitattype = "5130") %>%
+  group_by(habitattype, criterium, indicator, belang) %>%
+  summarise(aandeel_gunstig = sum(opp_ha * status_indicator, na.rm = TRUE) / sum(opp_ha * (!is.na(status_indicator))) * 100,
+            opp_gunstig_ha = sum(opp_ha * status_indicator, na.rm = TRUE) ,
+            opp_ongunstig_ha = sum(opp_ha * (!status_indicator), na.rm = TRUE),
+            opp_onbekend_ha = sum(opp_ha * is.na(status_indicator)),
+            opp_totaal_ha = sum(opp_ha)) %>%
+  ungroup() %>%
+  mutate(type_resultaat = "SBZH",
+         sbzh = "Binnen",
+         aandeel_gunstig_min = round(opp_gunstig_ha / opp_totaal_ha * 100, 2),
+         aandeel_gunstig_max = round((opp_gunstig_ha + opp_onbekend_ha) / opp_totaal_ha * 100, 2),
+         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
+                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed")))
+
+status_indicator_5130_habitatvlek <- status_indicator_vl_5130_habitatvlek %>%
+  bind_rows(status_indicator_sbzh_5130_habitatvlek) %>%
+  mutate(versie = "Versie 3",
+         schaal = "Vlaanderen") %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+  
+write_csv2(status_indicator_5130_habitatvlek, "../output/status_indicator_5130_habitatvlek.csv")
+```
+
+
+```{r}
+status_5130 <- status_habitat_5130 %>%
+  mutate(schaal_beoordeling = "gebied") %>%
+  bind_rows(status_habitat_5130_habitatvlek %>%
+  mutate(schaal_beoordeling = "habitatvlek"))  %>%
+  select(schaal_beoordeling, everything())
+
+status_indicator_5130 <- status_indicator_5130 %>%
+  mutate(schaal_beoordeling = "gebied") %>%
+  bind_rows(status_indicator_5130_habitatvlek %>%
+  mutate(schaal_beoordeling = "habitatvlek"))  %>%
+  select(schaal_beoordeling, everything())
+
+write_csv2(status_5130, "../output/status_5130.csv")
+write_csv2(status_indicator_5130, "../output/status_indicator_5130.csv")
+```
+

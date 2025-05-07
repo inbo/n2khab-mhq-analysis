@@ -1,0 +1,54 @@
+---
+title: "LSVI rare habitats"
+author: 
+  -
+    name: "Toon Westra"
+    email: "Toon.Westra@inbo.be"
+  -
+link-citations: TRUE
+site: bookdown::bookdown_site
+output:
+  bookdown::html_document2:
+    keep_md: TRUE
+    toc: TRUE
+    toc_depth: 3
+    toc_float:
+      collapsed: FALSE
+      smooth_scroll: FALSE
+    number_sections: TRUE
+    split_by: "chapter+number"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+
+library(tidyverse)
+library(INBOtheme)
+library(git2rdata)
+library(n2khab)
+library(n2khabmon)
+library(sf)
+library(LSVI)
+library(leaflet)
+library(DT)
+library(units)
+library(kableExtra)
+library(survey)
+library(ggh4x)
+library(scales)
+library(INLA)
+library(effectclass)
+library(inlatools)
+library(openssl)
+
+maakConnectiePool()
+conflicted::conflicts_prefer(dplyr::filter)
+
+options(dplyr.summarise.inform = FALSE)
+source("../functions_lsvi_calc.R")
+```
+
