@@ -2,16 +2,29 @@
 
 ## Data
 
-Het bestand '2023_Kartering2110_Kwaliteit' bevat een beoordeling van de LSVI indicatoren van habitattype 2110 per gekarteerde polygoon.
++ De bestanden '2023_Kartering2110_Kwaliteit_v2' en '2019_Kartering2110_Kwaliteit_v2.csv'  bevatten de data voor de beoordeling de LSVI indicatoren van habitattype 2110 per gekarteerde polygonen in respectievelijk 2023 en 2017.
 
-Het bestand bevindt zich in deze [google drive folder](https://drive.google.com/drive/folders/1Oj-IMYIP_FajNcr1w462ImGDI0mUUWSL).
++ De GIS-bestanden '2110Campagne_v2023.shp' en '2110Campagne_v2023.shp' bevatten de gekarteerde polygonen in respectievelijk 2023 en 2017.
+
+De bestanden bevinden zich in deze [google drive folder](https://drive.google.com/drive/folders/1Oj-IMYIP_FajNcr1w462ImGDI0mUUWSL).
 
 ```{r}
 data_path <- file.path(fileman_up("n2khab-mhq-data"), "raw/habitat_integraal")
 
-data_2110 <- read_csv2(file.path(data_path, "2023_Kartering2110_Kwaliteit.csv"))
+data_2110_v2023 <- read_csv2(file.path(data_path, "2023_Kartering2110_Kwaliteit_v2.csv"))
 
-map_2110 <- st_read(file.path(data_path, "2110Campagne_v2023.shp"), crs = 31370)
+map_2110_v2023 <- st_read(file.path(data_path, "2110Campagne_v2023.shp"), crs = 31370)
+
+data_2110_v2017 <- read_csv2(file.path(data_path, "2019_Kartering2110_Kwaliteit_v2.csv"))
+
+map_2110_v2017 <- st_read(file.path(data_path, "2110_najaar2017_Origineel.shp"), crs = 31370) 
+
+map_2110_v2017 <- map_2110_v2017 %>%
+  mutate(ID_2110 = 0:(nrow(map_2110_v2017) - 1)) %>% 
+  filter(!ID_2110 %in% c(60, 65)) #manual correction
+
+map_2110_v2017 <- map_2110_v2017 %>%
+  mutate(ID_2110 = 0:(nrow(map_2110_v2017) - 1))
 
 ```
 ## LSVI 2110
@@ -27,25 +40,32 @@ belang_2110 <- lsvi_2110 %>%
          criterium = Criterium)
 ```
 
-## LSVI per gekarteerde polygoon
+```{r}
+belang_2110 %>%
+  kable() %>%
+  kable_styling()
+```
+
+## Oppervlakte binnen en buiten SBZH
 
 ```{r}
 
 sbzh <- read_admin_areas(dsn = "sac") %>%
   select(sac_code)
 
-map_2110_area_tot <- map_2110 %>%
+# 2023
+map_2110_area_tot <- map_2110_v2023 %>%
   select(ID_2110) %>%
   mutate(area_tot = round(drop_units(st_area(geometry)), 1)) %>%
   st_drop_geometry()
 
-map_2110_area_sbzh <- map_2110 %>%
+map_2110_area_sbzh <- map_2110_v2023 %>%
   st_intersection(sbzh) %>%
   select(ID_2110, sac_code) %>%
   mutate(area_sbzh = round(drop_units(st_area(geometry)), 1)) %>%
   st_drop_geometry()
 
-map_2110_area <- map_2110_area_tot %>%
+map_2110_area_v2023 <- map_2110_area_tot %>%
   left_join(map_2110_area_sbzh, by = "ID_2110") %>%
   mutate(inside_sbzh = ifelse(is.na(area_sbzh), 0, area_sbzh),
          outside_sbzh = area_tot - inside_sbzh) %>%
@@ -55,23 +75,115 @@ map_2110_area <- map_2110_area_tot %>%
                values_to = "area_m2") %>%
   mutate(area_ha = area_m2/10000,
          sbzh = sbzh == "inside_sbzh") %>%
-  select(-area_m2)
+  select(-area_m2) %>%
+  filter(area_ha > 0) %>%
+  mutate(versie_kartering = 2023)
+
+# 2017
+map_2110_area_tot <- map_2110_v2017 %>%
+  select(ID_2110) %>%
+  mutate(area_tot = round(drop_units(st_area(geometry)), 1)) %>%
+  st_drop_geometry()
+
+map_2110_area_sbzh <- map_2110_v2017 %>%
+  select(ID_2110) %>%
+  st_intersection(sbzh) %>%
+  select(ID_2110, sac_code) %>%
+  mutate(area_sbzh = round(drop_units(st_area(geometry)), 1)) %>%
+  st_drop_geometry()
+
+map_2110_area_v2017 <- map_2110_area_tot %>%
+  left_join(map_2110_area_sbzh, by = "ID_2110") %>%
+  mutate(inside_sbzh = ifelse(is.na(area_sbzh), 0, area_sbzh),
+         outside_sbzh = area_tot - inside_sbzh) %>%
+  select(ID_2110, inside_sbzh, outside_sbzh) %>%
+  pivot_longer(cols = c(inside_sbzh, outside_sbzh),
+               names_to = "sbzh",
+               values_to = "area_m2") %>%
+  mutate(area_ha = area_m2/10000,
+         sbzh = sbzh == "inside_sbzh") %>%
+  select(-area_m2) %>%
+  filter(area_ha > 0) %>%
+  mutate(versie_kartering = 2017)
+
+map_2110_area <- map_2110_area_v2023 %>%
+  bind_rows(map_2110_area_v2017)
   
 ```
 
 
+## LSVI per gekarteerde polygoon
+
+Berekening indicatoren:
+
++ recreatie:
+  + gunstig: 'geen recreatie' en 'vrij intensieve recreatie'
+  + ongunstig: 'zeer intensieve recreatie'
++ oppervlakte: gunstig indien oppervlakte > 100 m²
++ structuurvormende sleutelsoorten: gunstig als minstens één van de structuurvormende sluetelsoorten een bedekking heeft van F, A, CD of D
++ aanvullende sleutelsoorten: gunstig als
+  + minstens 4 sleutelsoorten (aanvullend of structuurvormend)
+  + totale densiteit van de aanvullende sleutelsoorten >= 5 / 100 m²
+
+
 ```{r}
-lsvi_indicatoren_2110 <- data_2110 %>%
-  select(ID_2110, recreatie = REC_CR, dynamiek = Dyn_CR, oppervlakte = OPP_CR, "structuurvormende sleutelsoorten" = STRUCT_CR, "aanvullende sleutelsoorten" = Aan_Sp_CR) %>%
+lsvi_indicatoren_2110_v2023 <- data_2110_v2023 %>%
+  mutate(versie_kartering = 2023) %>%
+  mutate(recreatie = ifelse(Recrea %in% c("Vrij intensief", "Afwezig"), TRUE,
+                            ifelse(Recrea == "Zeer intensief", FALSE, NA)),
+         oppervlakte = opp >= 100,
+         dynamiek = Dyn_CR == "OK",
+         structuurvormende_sleutelsoorten = str_to_lower(Pol_elymufar) %in% c("a", "d", "cd", "f") |
+                                            str_to_lower(Pol_leymuare) %in% c("a", "d", "cd", "f") |
+                                            str_to_lower(Pol_honckpep) %in% c("a", "d", "cd", "f"),
+         aanvullende_sleutelsoorten_dens_100m2 = (replace_na(atripgla, 0) + 
+                                            replace_na(atriplit, 0) + 
+                                            replace_na(`beta_v-m`, 0) + 
+                                            replace_na(cakilmar, 0) + 
+                                            replace_na(`salsok-k`, 0)) / opp * 100,
+         aanvullende_sleutelsoorten = aanvullende_sleutelsoorten_dens_100m2 >= 5 | `Aantal sp.` >= 4) %>%
+  select(versie_kartering, ID_2110, recreatie, dynamiek, oppervlakte, "structuurvormende sleutelsoorten" = structuurvormende_sleutelsoorten,
+         "aanvullende sleutelsoorten" = aanvullende_sleutelsoorten) 
+
+lsvi_indicatoren_2110_v2017 <- data_2110_v2017 %>%
+  mutate(versie_kartering = 2017) %>%
+  mutate(recreatie = ifelse(Recreatie %in% c("Vrij intensief", "Afwezig"), TRUE,
+                            ifelse(Recreatie == "Zeer intensief", FALSE, NA)),
+         oppervlakte = Area_m2 >= 100,
+         structuurvormende_sleutelsoorten = ifelse(Schaal == "Talrijk", TRUE,
+                           ifelse(Schaal %in% c("Geen", "Vrij talrijk"), FALSE, NA)),
+         dynamiek = ifelse(is.na(Dynamiek), TRUE,
+                           ifelse(Dynamiek == "Achter dijk", FALSE, NA)),
+         structuurvormende_sleutelsoorten = TRUE, #onvoldoende gegevens
+         aanvullende_sleutelsoorten_dens_100m2 = (replace_na(atripgla, 0) + 
+                                            replace_na(atriplit, 0) + 
+                                            replace_na(`beta_v-m`, 0) + 
+                                            replace_na(cakilmar, 0) + 
+                                            replace_na(salsokal, 0)) / Area_m2 * 100,
+         aanvullende_sleutelsoorten = aanvullende_sleutelsoorten_dens_100m2 >= 5 | `Aantal spec` >= 4) %>%
+  select(versie_kartering, ID_2110 = FID, recreatie, dynamiek, oppervlakte, "structuurvormende sleutelsoorten" = structuurvormende_sleutelsoorten,
+         "aanvullende sleutelsoorten" = aanvullende_sleutelsoorten, opp_check = Area_m2) 
+
+lsvi_indicatoren_2110 <- lsvi_indicatoren_2110_v2023 %>%
+  bind_rows(lsvi_indicatoren_2110_v2017) %>%
   pivot_longer(cols = c("recreatie", "dynamiek", "oppervlakte", "structuurvormende sleutelsoorten", "aanvullende sleutelsoorten"), 
                names_to = "indicator", 
                values_to = "status_indicator") %>%
-  mutate(status_indicator = status_indicator == "OK") %>%
   left_join(belang_2110, by = "indicator") %>%
-  left_join(map_2110_area, by = "ID_2110")
+  inner_join(map_2110_area, by = c("versie_kartering", "ID_2110")) %>%
+  mutate(sbzh = ifelse(is.na(sbzh), TRUE, sbzh),
+         area_ha = ifelse(is.na(area_ha), opp_check/10000, area_ha))
   
+check_area <- lsvi_indicatoren_2110 %>%
+  filter(versie_kartering == 2017) %>%
+  distinct(ID_2110, opp_check, area_ha, sbzh) %>%
+  group_by(ID_2110, opp_check) %>%
+  summarise(area_m2 = sum(area_ha) * 10000) %>%
+  ungroup() %>%
+  mutate(check = abs(opp_check - area_m2) > 2)
+
 lsvi_globaal_2110 <- lsvi_indicatoren_2110 %>%
-  group_by(ID_2110, sbzh, area_ha) %>%
+  group_by(versie_kartering, ID_2110, sbzh, area_ha) %>%
   summarise(n_gunstig = sum(status_indicator),
             n_ind = n_distinct(indicator),
             n_zb_ongunstig = sum(status_indicator == FALSE & belang == "zb"),
@@ -86,7 +198,7 @@ lsvi_globaal_2110 <- lsvi_indicatoren_2110 %>%
 ```{r}
 status_vl_2110 <- lsvi_globaal_2110 %>%
   mutate(habitattype = "2110") %>%
-  group_by(habitattype) %>%
+  group_by(versie_kartering, habitattype) %>%
   summarise(aandeel_gunstig = sum(area_ha * status) / sum(area_ha) * 100,
             opp_gunstig_ha = sum(area_ha * status),
             opp_ongunstig_ha = sum(area_ha * (!status))) %>%
@@ -97,7 +209,7 @@ status_vl_2110 <- lsvi_globaal_2110 %>%
 status_sbzh_2110 <- lsvi_globaal_2110 %>%
   filter(sbzh) %>%
   mutate(habitattype = "2110") %>%
-  group_by(habitattype) %>%
+  group_by(versie_kartering, habitattype) %>%
   summarise(aandeel_gunstig = sum(area_ha * status) / sum(area_ha) * 100,
             opp_gunstig_ha = sum(area_ha * status),
             opp_ongunstig_ha = sum(area_ha * (!status))) %>%
@@ -107,27 +219,25 @@ status_sbzh_2110 <- lsvi_globaal_2110 %>%
   
 status_habitat_2110 <- status_vl_2110 %>%
   bind_rows(status_sbzh_2110) %>%
+  filter(versie_kartering == 2023) %>%
   mutate(versie = "Versie 3",
          schaal = "Vlaanderen",
          opp_onbekend_ha = 0,
-         aandeel_gunstig_min = aandeel_gunstig,
-         aandeel_gunstig_max = aandeel_gunstig,
-         beoordeling = ifelse(aandeel_gunstig_min >= 75, "Goed", 
-                              ifelse(aandeel_gunstig_max >= 75, "Onbekend", "Niet goed"))) %>%
-  select(versie, schaal, type_resultaat, habitattype, sbzh, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+         beoordeling = ifelse(aandeel_gunstig >= 75, "Goed", "Niet goed")) %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, aandeel_gunstig, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
 
 write_csv2(status_habitat_2110, "../output/status_habitat_2110.csv")
 
 output_path <- file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/coastal_dunes/result")
 
 status_habitat_2110 %>%
-  write_vc("status_habitat_2110", root = output_path, sorting = "type_resultaat")
+  write_vc("status_habitat_2110", root = output_path, sorting = "type_resultaat", strict = FALSE)
 ```
 
 ```{r}
 status_indicator_vl_2110 <- lsvi_indicatoren_2110 %>%
   mutate(habitattype = "2110") %>%
-  group_by(habitattype, criterium, indicator, belang) %>%
+  group_by(versie_kartering, habitattype, criterium, indicator, belang) %>%
   summarise(aandeel_gunstig = sum(area_ha * status_indicator, na.rm = TRUE) / sum(area_ha * (!is.na(status_indicator))) * 100,
             opp_gunstig_ha = sum(area_ha * status_indicator, na.rm = TRUE) ,
             opp_ongunstig_ha = sum(area_ha * (!status_indicator), na.rm = TRUE),
@@ -144,7 +254,7 @@ status_indicator_vl_2110 <- lsvi_indicatoren_2110 %>%
 status_indicator_sbzh_2110 <- lsvi_indicatoren_2110 %>%
   mutate(habitattype = "2110") %>%
   filter(sbzh) %>%
-  group_by(habitattype, criterium, indicator, belang) %>%
+  group_by(versie_kartering, habitattype, criterium, indicator, belang) %>%
   summarise(aandeel_gunstig = sum(area_ha * status_indicator, na.rm = TRUE) / sum(area_ha * (!is.na(status_indicator))) * 100,
             opp_gunstig_ha = sum(area_ha * status_indicator, na.rm = TRUE) ,
             opp_ongunstig_ha = sum(area_ha * (!status_indicator), na.rm = TRUE),
@@ -160,10 +270,72 @@ status_indicator_sbzh_2110 <- lsvi_indicatoren_2110 %>%
 
 status_indicator_2110 <- status_indicator_vl_2110 %>%
   bind_rows(status_indicator_sbzh_2110) %>%
+  filter(versie_kartering == 2023) %>%
   mutate(versie = "Versie 3",
          schaal = "Vlaanderen") %>%
-  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, aandeel_gunstig = aandeel_gunstig_min, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
 
 status_indicator_2110 %>%
   write_vc("status_indicatoren_2110", root = output_path, sorting = c("type_resultaat", "indicator"))
+```
+## Trend
+
+```{r}
+
+trend_habitat_2110 <- status_vl_2110 %>%
+  bind_rows(status_sbzh_2110) %>%
+  select(versie_kartering, habitattype, sbzh, type_resultaat, aandeel_gunstig) %>%
+  pivot_wider(names_from = versie_kartering,
+              values_from = aandeel_gunstig,
+              names_prefix = "aandeel_gunstig_") %>%
+  mutate(mean = round(aandeel_gunstig_2023 - aandeel_gunstig_2017, 2),
+         parameter = "verschil_aandeel_gunstig_abs",
+         jaar_min = 2017,
+         jaar_max = 2023,
+         verschil_jaar = 2023 - 2017,
+         klasse = classification(mean/100, mean/100, threshold = 0.12, reference = 0),
+         versie = "Versie 3",
+         schaal = "Vlaanderen") %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, parameter, mean, klasse, jaar_min, jaar_max, verschil_jaar)
+
+trend_habitat_2110 %>%
+  write_vc("trend_habitat_2110", root = output_path, sorting = "type_resultaat", strict = FALSE)
+
+trend_habitat_2110 %>%
+  write_csv2("../output/trend_habitat_2110.csv")
+```
+
+```{r}
+
+trend_indicatoren_2110 <- status_indicator_vl_2110 %>%
+  bind_rows(status_indicator_sbzh_2110) %>%
+  select(versie_kartering, habitattype, sbzh, type_resultaat, criterium, indicator, aandeel_gunstig) %>%
+  pivot_wider(names_from = versie_kartering,
+              values_from = aandeel_gunstig,
+              names_prefix = "aandeel_gunstig_") %>%
+  mutate(mean = round(aandeel_gunstig_2023 - aandeel_gunstig_2017, 2),
+         parameter = "verschil_aandeel_gunstig_abs",
+         jaar_min = 2017,
+         jaar_max = 2023,
+         verschil_jaar = 2023 - 2017,
+         klasse = classification(mean/100, mean/100, threshold = 0.12, reference = 0),
+         versie = "Versie 3",
+         schaal = "Vlaanderen") %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, parameter, mean, klasse, jaar_min, jaar_max, verschil_jaar)
+
+#structuurvormende sleutelsoorten in 2017 als 100% correct ingeschat maar onvoldoelde data voor nauwkeurige inschatting
+
+trend_indicatoren_2110_corr <- trend_indicatoren_2110 %>%
+  filter(indicator == "structuurvormende sleutelsoorten") %>%
+  select(-mean, -klasse)
+
+trend_indicatoren_2110 <- trend_indicatoren_2110 %>%
+  filter(indicator != "structuurvormende sleutelsoorten") %>%
+  bind_rows(trend_indicatoren_2110_corr)
+
+trend_indicatoren_2110 %>%
+  write_vc("trend_indicatoren_2110", root = output_path, sorting = c("type_resultaat", "indicator"), strict = FALSE)
+
+trend_indicatoren_2110 %>%
+  write_csv2("../output/trend_indicatoren_2110.csv")
 ```
