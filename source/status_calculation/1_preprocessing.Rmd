@@ -126,6 +126,63 @@ check_in_sac <- strata_vbi %>%
   ungroup()
 ```
 
+```{r}
+#ligging binnen en buiten 'gebieden met goed beheer'
+
+path_beheer <- file.path(fileman_up("n2khab-mhq-data"), "raw/passend_beheer")
+
+map_beheer <- st_read(file.path(path_beheer, "passend_beheer.gpkg")) %>%
+  mutate(nsb_1_6 = paste0(nsb1, ";", nsb2, ";", nsb3, ";", nsb4, ";", nsb5, ";", nsb6)) %>%
+  select(nsb_1_6) 
+
+stratum_passend_beheer <- mhq_refpoints %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370) %>%
+  st_join(map_beheer) %>%
+  mutate(passend_beheer = !is.na(nsb_1_6)) %>%
+  st_drop_geometry() %>%
+  distinct(point_code, passend_beheer)
+  
+# moneos pq's
+
+path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_terr")
+coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_mhq_terr)
+coordinates_1330_da <- read_vc(file = "coordinates_moneos_1330_da", root = path_mhq_terr)
+
+stratum_passend_beheer_91E0_sf <- coordinates_91E0_sf %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370) %>%
+  st_join(map_beheer) %>%
+  mutate(passend_beheer = !is.na(nsb_1_6)) %>%
+  st_drop_geometry() %>%
+  select(link_mhq = plot_id, passend_beheer) %>%
+  unique()
+
+stratum_passend_beheer_1330_da <- coordinates_1330_da %>%
+  st_as_sf(coords = c("x_mean", "y_mean"), crs = 31370) %>%
+  st_join(map_beheer) %>%
+  mutate(passend_beheer = !is.na(nsb_1_6)) %>%
+  st_drop_geometry() %>%
+  select(link_mhq = plot_id, passend_beheer) %>%
+  unique()
+
+# vbi
+path_vbi <- file.path(fileman_up("n2khab-mhq-data"), "processed/dwh_vbi")
+coordinates_vbi <- read_vc(file = "coordinates", root = path_vbi) 
+
+stratum_passend_beheer_vbi <- coordinates_vbi %>%
+  filter(vbi_cycle > 1) %>%
+  mutate(x_coord = x, y_coord = y) %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370) %>%
+  st_join(map_beheer) %>%
+  mutate(passend_beheer = !is.na(nsb_1_6)) %>%
+  st_drop_geometry() %>%
+  mutate(link_mhq = str_c(plot_id, "_", vbi_cycle),
+         plot_id = str_c("vbi_", plot_id)) %>%
+  distinct(plot_id, link_mhq, passend_beheer, vbi_cycle) %>%
+  left_join(paired_2_3, by = "plot_id") %>%
+  mutate(point_code = ifelse(is.na(distance_2_3) | (distance_2_3 < 10), plot_id, str_c(plot_id, "_", vbi_cycle)))
+
+```
+
 ## Oppervlaktes
 
 Ook de oppervlaktes van elk habitattype binnen en buiten SBZH moet bepaald worden om de gewichten te kunnen berekenen.
@@ -460,6 +517,18 @@ main_type_ws_area <- watersurfaces_hab_table %>%
 
 ```
 
+```{r}
+ws_passend_beheer <- watersurfaces %>%
+  st_join(map_beheer) %>%
+  mutate(passend_beheer = !is.na(nsb_1_6) & str_detect(nsb_1_6, "3110|3130|3140|3150|3160|2190")) %>%
+  st_drop_geometry() %>%
+  rename(code_watersurfaces = polygon_id) %>%
+  group_by(code_watersurfaces) %>%
+  summarise(passend_beheer = any(passend_beheer)) %>%
+  ungroup()
+```
+
+
 ## Watervlakken in het meetnet waar habitat is verdwenen
 
 ```{r}
@@ -528,7 +597,7 @@ Bij de rivieren hebben we 2 strata:
 
 Dit wordt weergegeven in de shapefile shapefile 'steekproefkader_3260_v1_7_strata'.
 
-We berkenen de totale lengte in elk stratum.
+We berekenen de totale lengte in elk stratum.
 
 ```{r}
 sampleframe_3260_orig <- st_read(file.path(fileman_up("n2khab-mhq-data"), "processed/3260_steekproefkader/steekproefkader_3260_v1_7_strata.shp"))

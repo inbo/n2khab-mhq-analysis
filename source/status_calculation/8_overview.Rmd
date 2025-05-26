@@ -48,6 +48,32 @@ trend_flanders %>%
 write_csv2("../output/trend_habitatkwaliteit.csv")
 ```
 
+```{r}
+
+habcat <- data.frame(habcat_code = c("gr_bm", "cd", "hs_id", "fs", "sw"),
+                     habcat_name = c("grassland_marsh", "coastal_dunes", "heath_inland_dunes", "forests", "standing_water"))
+
+status_beheer <- NULL
+
+for (i in 1:nrow(habcat)) {
+  
+  input_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/", habcat$habcat_name[i],"/result"))
+  
+  beheer_habcat  <- read_vc(root = input_path,
+           file = str_c("status_beheer_", habcat$habcat_code[i]))
+  
+  status_beheer <- status_beheer %>%
+    bind_rows(beheer_habcat)
+  
+}
+
+status_beheer <- status_beheer %>%
+  select(-starts_with("opp")) %>%
+  arrange(habitattype, passend_beheer)
+
+write_csv2(status_beheer, "../output/status_habitat_beheer.csv", na = "")
+```
+
 
 ```{r}
 status_flanders %>%

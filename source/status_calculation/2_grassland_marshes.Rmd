@@ -74,7 +74,8 @@ mhq_su <- mhq_measurements_habcat %>%
   filter(!is.na(id)) %>%
   filter(type == type_analysis) %>%
   mutate(main_type = str_sub(type, 1, 4)) %>%
-  left_join(strata, by = "point_code")
+  left_join(strata, by = "point_code") %>%
+  left_join(stratum_passend_beheer, by = "point_code")
 
 check <- mhq_su %>%
   group_by(point_code, date) %>%
@@ -86,7 +87,8 @@ moneos_su <- data_habitat_moneos %>%
   mutate(type = type_analysis,
          main_type = "1330",
          point_code = link_mhq) %>%
-  left_join(strata_1330_da, by = "link_mhq")
+  left_join(strata_1330_da, by = "link_mhq") %>%
+  left_join(stratum_passend_beheer_1330_da, by = "link_mhq")
 
 mhq_su <- mhq_su %>%
   bind_rows(moneos_su)
@@ -261,6 +263,21 @@ status_flanders %>%
   coord_flip() +
   theme(legend.position = "bottom")
 ```
+
+```{r}
+lsvi_habitat_beheer <- lsvi_habitat %>%
+  inner_join(select(mhq_su_recent, id, passend_beheer, weight, date), by = "id")
+
+status_beheer <- calc_status_passend_beheer(lsvi_habitat_beheer)
+
+status_beheer %>%
+  write_vc(root = output_path,
+           file = str_c("status_beheer_", habcat_code),
+           sorting = c("habitattype", "passend_beheer"),
+           strict = FALSE)
+
+```
+
 
 #### kwaliteitsindex
 

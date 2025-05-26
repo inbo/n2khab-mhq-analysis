@@ -77,7 +77,8 @@ mhq_su <- mhq_measurements_habcat %>%
   filter(!is.na(id)) %>%
   filter(type == type_analysis) %>%
   mutate(main_type = str_sub(type, 1, 4)) %>%
-  left_join(strata, by = "point_code")
+  left_join(strata, by = "point_code") %>%
+  left_join(stratum_passend_beheer, by = "point_code")
 
 check <- mhq_su %>%
   group_by(point_code, date) %>%
@@ -87,7 +88,8 @@ moneos_su <- data_habitat_moneos %>%
   mutate(type = type_analysis,
          main_type = "91E0",
          point_code = link_mhq) %>%
-  left_join(strata_91E0_sf, by = "link_mhq")
+  left_join(strata_91E0_sf, by = "link_mhq") %>%
+  left_join(stratum_passend_beheer_91E0_sf, by = "link_mhq")
 
 vbi_su <- data_habitata_vbi %>%
   mutate(phab = ifelse(is.na(phab), 100, phab)) %>%
@@ -97,8 +99,9 @@ vbi_su <- data_habitata_vbi %>%
   mutate(type = type_analysis,
          main_type = str_sub(type, 1, 4)) %>%
   left_join(strata_vbi, by = c("link_mhq", "vbi_cycle")) %>%
+  left_join(select(stratum_passend_beheer_vbi, passend_beheer, link_mhq, vbi_cycle), by = c("link_mhq", "vbi_cycle")) %>%
   mutate(distance_2_3 = round(distance_2_3, 1)) %>%
-  select(id, point_code, link_mhq, vbi_cycle, date, main_type, type, type_analysis, phab, in_sac, distance_2_3)
+  select(id, point_code, link_mhq, vbi_cycle, date, main_type, type, type_analysis, phab, in_sac, passend_beheer, distance_2_3)
   
 check_in_sac <- vbi_su %>%
   group_by(point_code) %>%
@@ -287,6 +290,20 @@ status_flanders %>%
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
   coord_flip() +
   theme(legend.position = "bottom")
+```
+
+```{r}
+lsvi_habitat_beheer <- lsvi_habitat %>%
+  inner_join(select(mhq_su_recent, id, passend_beheer, weight, date), by = "id")
+
+status_beheer <- calc_status_passend_beheer(lsvi_habitat_beheer)
+
+status_beheer %>%
+  write_vc(root = output_path,
+           file = str_c("status_beheer_", habcat_code),
+           sorting = c("habitattype", "passend_beheer"),
+           strict = FALSE)
+
 ```
 
 #### Kwaliteitsindex

@@ -2092,6 +2092,97 @@ calc_status_habitat <- function(lsvi_habitat) {
 
 ###########################################################################################################
 
+calc_status_passend_beheer <- function(lsvi_habitat_beheer) {
+
+  lsvi_habitat_beheer <- lsvi_habitat_beheer %>%
+    mutate(status_habitatvlek = as.numeric(status),
+           passend_beheer = ifelse(passend_beheer, "ja", "nee"),
+           habitattype = main_type)
+
+  output <- NULL
+
+  for (ht in unique(lsvi_habitat_beheer$habitattype)) {
+
+      data_habitat <- lsvi_habitat_beheer %>%
+        filter(habitattype == ht)
+
+      n_beheer <- data_habitat %>%
+        group_by(passend_beheer) %>%
+        summarise(n = n()) %>%
+        ungroup()
+
+      if (nrow(n_beheer) > 1) {
+
+        design <- svydesign(id = ~1, weights = ~weight,  data = data_habitat)
+        model <- svyglm(formula = status_habitatvlek ~ 0 + passend_beheer, design = design, family = "quasibinomial")
+        model_test <- svyglm(formula = status_habitatvlek ~ passend_beheer, design = design, family = "quasibinomial")
+        summary_model <- summary(model_test)
+        p_value <- round(summary_model$coefficients[2,4], 5)
+        param_pb <- geefParameters(model)
+
+        output_ht <- data_habitat %>%
+          mutate(type_resultaat = "Passend beheer",
+                 sbzh = "Binnen & Buiten",
+                 versie = "Versie 3") %>%
+          group_by(type_resultaat, versie, habitattype, sbzh, passend_beheer) %>%
+          summarise(habitatsubtype = paste(unique(type), collapse = "; "),
+                    n_obs = n()) %>%
+          ungroup() %>%
+          arrange(passend_beheer) %>%
+          bind_cols(param_pb) %>%
+          mutate(p_waarde_beheer = p_value,
+                 effect_beheer = ifelse(p_waarde_beheer <= 0.05, "significant", "niet significant"))
+
+      } else {
+
+        design <- svydesign(id = ~1, weights = ~weight,  data = data_habitat)
+        model <- svyglm(formula = status_habitatvlek ~ 1, design = design, family = "quasibinomial")
+        param_vl <- geefParameters(model)
+
+        output_ht <- data_habitat %>%
+          mutate(type_resultaat = "Passend beheer",
+                 sbzh = "Binnen & Buiten",
+                 versie = "Versie 3") %>%
+          group_by(type_resultaat, versie, habitattype, sbzh, passend_beheer) %>%
+          summarise(habitatsubtype = paste(unique(type), collapse = "; "),
+                    n_obs = n()) %>%
+          ungroup() %>%
+          arrange(passend_beheer) %>%
+          bind_cols(param_vl)
+
+      }
+
+      output <- output %>%
+        bind_rows(output_ht)
+
+  }
+
+    output <- output %>%
+      rename(aandeel_gunstig_llci = AandeelGunstig_LLCI,
+             aandeel_gunstig_ulci = AandeelGunstig_ULCI,
+             aandeel_gunstig = AandeelGunstig
+             ) %>%
+      mutate(aandeel_gunstig_llci = ifelse(n_obs < 5, NA, aandeel_gunstig_llci),
+             aandeel_gunstig_ulci  = ifelse(n_obs < 5, NA, aandeel_gunstig_ulci),
+             beoordeling = ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                  ifelse(aandeel_gunstig_llci >= 75, "Goed",
+                                         ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
+                                                "Onbekend"))),
+             beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend"))) %>%
+      group_by(habitattype) %>%
+      mutate(min_n = min(n_obs)) %>%
+      ungroup() %>%
+      mutate(effect_beheer = ifelse(min_n < 5, NA, effect_beheer),
+             p_waarde_beheer = ifelse(min_n < 5, NA, p_waarde_beheer)) %>%
+        select(-varName, -min_n)
+
+    return(output)
+
+  }
+
+
+###########################################################################################################
+
 calc_status_indicator <- function(lsvi_indicator){
 
   lsvi_indicator <- lsvi_indicator %>%

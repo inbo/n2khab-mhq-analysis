@@ -273,10 +273,13 @@ status_indicator_2110 <- status_indicator_vl_2110 %>%
   filter(versie_kartering == 2023) %>%
   mutate(versie = "Versie 3",
          schaal = "Vlaanderen") %>%
-  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, aandeel_gunstig = aandeel_gunstig_min, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, belang, aandeel_gunstig = aandeel_gunstig_min, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
 
 status_indicator_2110 %>%
-  write_vc("status_indicatoren_2110", root = output_path, sorting = c("type_resultaat", "indicator"))
+  write_vc("status_indicatoren_2110", root = output_path, sorting = c("type_resultaat", "indicator"), strict = FALSE)
+
+status_indicator_2110 %>%
+  write_csv2("../output/status_indicator_2110.csv")
 ```
 ## Trend
 
@@ -309,7 +312,7 @@ trend_habitat_2110 %>%
 
 trend_indicatoren_2110 <- status_indicator_vl_2110 %>%
   bind_rows(status_indicator_sbzh_2110) %>%
-  select(versie_kartering, habitattype, sbzh, type_resultaat, criterium, indicator, aandeel_gunstig) %>%
+  select(versie_kartering, habitattype, sbzh, type_resultaat, criterium, indicator, belang, aandeel_gunstig) %>%
   pivot_wider(names_from = versie_kartering,
               values_from = aandeel_gunstig,
               names_prefix = "aandeel_gunstig_") %>%
@@ -321,7 +324,7 @@ trend_indicatoren_2110 <- status_indicator_vl_2110 %>%
          klasse = classification(mean/100, mean/100, threshold = 0.12, reference = 0),
          versie = "Versie 3",
          schaal = "Vlaanderen") %>%
-  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, parameter, mean, klasse, jaar_min, jaar_max, verschil_jaar)
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, belang, parameter, mean, klasse, jaar_min, jaar_max, verschil_jaar)
 
 #structuurvormende sleutelsoorten in 2017 als 100% correct ingeschat maar onvoldoelde data voor nauwkeurige inschatting
 

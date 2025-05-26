@@ -59,6 +59,7 @@ mhq_su <- measurements_ws_all %>%
   filter(suitable_mhq) %>%
   select(id, code_watersurfaces, main_type, type, date, ws_type) %>%
   left_join(ws_area, by = "code_watersurfaces") %>%
+  left_join(ws_passend_beheer, by = "code_watersurfaces") %>%
   group_by(code_watersurfaces, date) %>%
   mutate(area_ha_type = area_ha / n_distinct(type)) %>% #plassen die verschillende types bevatten
   ungroup()
@@ -407,6 +408,102 @@ status_flanders %>%
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
   coord_flip() +
   theme(legend.position = "bottom")
+```
+
+```{r}
+
+lsvi_habitat_beheer <- lsvi_habitat %>%
+  inner_join(select(mhq_su_recent, id, weight_ws, weight_stratum, area_ha, area_ha_type, date, passend_beheer), by = "id") %>%
+  mutate(weight = weight_ws) %>%
+  mutate(weight = ifelse(is.na(weight), 1, weight),
+         is_integraal = main_type == "3110" | 
+                        area_class == ">= 50 ha" | 
+                        (main_type == "2190" & area_class == "1 ha < area <= 5 ha"))
+
+lsvi_habitat_beheer_sample <- lsvi_habitat_beheer %>%
+  filter(!is_integraal)
+
+status_beheer_sample <- calc_status_passend_beheer(lsvi_habitat_beheer_sample)
+
+```
+
+
+```{r}
+lsvi_habitat_beheer_integraal <- lsvi_habitat_beheer %>%
+  filter(is_integraal)
+
+lsvi_missing <- lsvi_missing %>%
+  left_join(ws_passend_beheer, by = "code_watersurfaces")
+
+lsvi_habitat_beheer_integraal <- lsvi_habitat_beheer_integraal %>%
+  bind_rows(lsvi_missing)
+
+beheer_integraal <- lsvi_habitat_beheer_integraal %>%
+  group_by(main_type, passend_beheer) %>%
+  summarise(area_unknown_ha = sum(area_ha_type * is.na(status)),
+            area_measured_int_ha = sum(area_ha_type * !is.na(status)),
+            area_gunstig_int_ha = sum(area_ha_type * status, na.rm = TRUE),
+            n_obs_int = n_distinct(code_watersurfaces)) %>%
+  ungroup() %>%
+  rename( habitattype = main_type) %>%
+  mutate(passend_beheer = ifelse(passend_beheer, "ja", "nee"))
+
+```
+
+
+```{r}
+
+areas_beheer_sample <- mhq_su_recent %>%
+  filter(!(area_class == ">= 50 ha" | type == "3110" | (main_type == "2190" & area_class == "1 ha < area <= 5 ha"))) %>%
+  group_by(main_type, passend_beheer) %>%
+  summarise(area_sample_ha = sum(area_ha)) %>%
+  ungroup() %>%
+  rename(habitattype = main_type) %>%
+  mutate(passend_beheer = ifelse(passend_beheer, "ja", "nee"))
+
+ht3110_missing  <- status_beheer_sample %>%
+  distinct(versie, type_resultaat, sbzh, passend_beheer) %>%
+  mutate(habitattype = "3110",
+         habitatsubtype = "3110",
+         aandeel_gunstig = 0,
+         n_obs = 0)
+  
+status_beheer_sample <- status_beheer_sample %>%
+  bind_rows(ht3110_missing) %>%
+  rename(n_obs_sample = n_obs)
+
+status_beheer <- status_beheer_sample %>%
+  left_join(areas_beheer_sample, by = c("habitattype", "passend_beheer")) %>%
+  left_join(beheer_integraal, by = c("habitattype", "passend_beheer")) 
+
+status_beheer <- status_beheer %>%
+  mutate(area_gunstig_int_ha = ifelse(is.na(area_gunstig_int_ha), 0,  area_gunstig_int_ha),
+         area_measured_int_ha = ifelse(is.na(area_measured_int_ha), 0,  area_measured_int_ha),
+         area_unknown_ha = ifelse(is.na(area_unknown_ha), 0,  area_unknown_ha),
+         area_sample_ha = ifelse(is.na(area_sample_ha), 0,  area_sample_ha),
+         n_obs_int = ifelse(is.na(n_obs_int), 0, n_obs_int),
+         n_obs = n_obs_sample + n_obs_int,
+         aandeel_gunstig = round((aandeel_gunstig/100 * area_sample_ha + area_gunstig_int_ha) / (area_measured_int_ha + area_sample_ha) * 100, 2),
+         aandeel_gunstig_ulci = round((aandeel_gunstig_ulci/100 * area_sample_ha + area_gunstig_int_ha) / (area_measured_int_ha + area_sample_ha) * 100, 2),
+         aandeel_gunstig_llci = round((aandeel_gunstig_llci/100 * area_sample_ha + area_gunstig_int_ha) / (area_measured_int_ha + area_sample_ha) * 100, 2),
+         opp_uitspraak_ha = round(area_measured_int_ha + area_sample_ha, 2),
+         opp_onbekend_ha = round(area_unknown_ha, 2),
+         opp_totaal_ha = opp_uitspraak_ha + opp_onbekend_ha) %>%
+  select(-area_gunstig_int_ha, -area_measured_int_ha, -area_unknown_ha, -area_sample_ha, -p_waarde_beheer, -effect_beheer) %>%
+  mutate(beoordeling = ifelse(habitattype == "3110", 
+                              ifelse(aandeel_gunstig < 75, "Niet goed", "Goed"),
+                              ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
+                                ifelse(aandeel_gunstig_llci >= 75, "Goed",
+                                       ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
+                                              "Onbekend"))))) %>%
+  filter(!is.na(beoordeling)) %>%
+  select(type_resultaat, versie, habitattype, sbzh, passend_beheer, habitatsubtype, n_obs_sample, n_obs_int, n_obs, everything())
+
+status_beheer %>%
+  write_vc(root = output_path,
+           file = str_c("status_beheer_", habcat_code),
+           strict = FALSE,
+           digits = 6)
 ```
 
 #### kwaliteitsindex
