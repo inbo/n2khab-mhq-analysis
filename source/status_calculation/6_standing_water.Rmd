@@ -356,7 +356,7 @@ status_flanders <- status_flanders_habt %>%
          opp_totaal_ha = opp_uitspraak_ha + opp_onbekend_ha) %>%
   select(-area_gunstig_int_ha, -area_measured_int_ha, -area_unknown_ha, -area_sample_ha) %>%
   mutate(beoordeling = ifelse(habitattype == "3110", 
-                              ifelse(aandeel_gunstig < 75, "Niet goed", "Goed"),
+                              ifelse(aandeel_gunstig < 90, "Niet goed", "Goed"),
                               ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
                                 ifelse(aandeel_gunstig_llci >= 75, "Goed",
                                        ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
@@ -648,7 +648,7 @@ status_indicatoren <- status_indicatoren_sample %>%
          opp_totaal_ha = opp_uitspraak_ha + opp_onbekend_ha) %>%
   select(-area_gunstig_int_ha, -area_measured_int_ha, -area_unknown_ha, -area_sample_ha) %>%
   mutate(beoordeling = ifelse(habitattype == "3110", 
-                              ifelse(aandeel_gunstig < 75, "Niet goed", "Goed"),
+                              ifelse(aandeel_gunstig < 90, "Niet goed", "Goed"),
                               ifelse(is.na(aandeel_gunstig_ulci), "Onbekend",
                                 ifelse(aandeel_gunstig_llci >= 75, "Goed",
                                        ifelse(aandeel_gunstig_ulci < 75, "Niet goed",
