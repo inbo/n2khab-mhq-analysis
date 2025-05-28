@@ -1,0 +1,21 @@
+# oppervlakte afhankelijkheid sleutelsoorten
+
+```{r}
+z_values <- read_csv("../../data/zvalues.csv") %>%
+  filter(Versie == "Versie 3")
+```
+
+```{r}
+aanpassing_ref <- z_values %>%
+  mutate(opp_m2 = ifelse(str_sub(Habitatsubtype,1, 1) == "9", 16 * 16, 3 * 3),
+         ref_corr = ceiling(exp(intercepts + zvalues * log(opp_m2))),
+         Referentiewaarde_corr = pmin(ref_corr, Referentiewaarde),
+         verschil = Referentiewaarde - Referentiewaarde_corr,
+         intercepts = round(intercepts, 6),
+         zvalues = round(zvalues, 6)) %>%
+  select(Versie, Habitatsubtype, Voorwaarde, intercepts, zvalues, opp_m2, Referentiewaarde, Referentiewaarde_corr, verschil)
+
+aanpassing_ref %>%
+  write_csv2("../output/ref_sleutelsoorten_corr.csv")
+```
+
