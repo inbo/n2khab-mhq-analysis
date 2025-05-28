@@ -405,7 +405,10 @@ Voor volgende variabelen voeren we de correctie uit:
 + bedekking overige exoten
 + bedekking vergrassing
 
-Dit geldt ook voor bedekking sleutelsoorten van 2130.
+Dit geldt ook voor bedekking sleutelsoorten van 2130 en aantal weinig talrijke sleutelsoorten van 2120.
+
+De soortenlijst voor vergrassing van habitattype 2120 bevat foutief 'Festuca Festuca juncifolia'.
+We herbereken daarom deze voorwaarde na verwijdering van 'Festuca Festuca juncifolia' uit de soortenlijst.
 
 ```{r}
 
@@ -413,52 +416,78 @@ data_habitat_2120_2130 <- data_habitat_cd %>%
   filter(Habitattype %in% c("2120", "2130_hd", "2130_had")) %>%
   anti_join(voorwaarden_2120_corrected_1, by = "ID") #de vegetatieloze plots
 
+cover_veg <- get_cover_veglayers(data_path = path_mhq_terr, 
+                                          record_ids = data_habitat_2120_2130$record_id_square) %>%
+  select(-layer_description) %>%
+  pivot_wider(names_from = layer_code, values_from = cover, names_prefix = "cover_", values_fill = 0) %>%
+  mutate(cover_veg = pmax(cover_K, 100 - cover_NB)) %>%
+  select(record_id = recording_givid, cover_veg)
+
+data_soorten_2120_2130 <- data_soorten_kenm_cd %>%
+  semi_join(data_habitat_2120_2130)  %>%
+  left_join(cover_veg, by = "record_id") %>%
+  rename(Waarde_abs = Waarde) %>%
+  mutate(Waarde = Waarde_abs / cover_veg * 100)
+
 lsvi_temp <- berekenLSVIbasis(Versie = "Versie 3",
                          Kwaliteitsniveau = 1,
                          Aggregatiemethode = "RapportageHR",
                          Data_habitat = data_habitat_2120_2130,
-                         Data_soortenKenmerken = data_soorten_kenm_cd %>%
-                           semi_join(data_habitat_2120_2130, by = "ID")) 
+                         Data_soortenKenmerken = data_soorten_2120_2130) 
 
 voorwaarden_2120_2130_bedekking  <- lsvi_temp$Resultaat_detail %>%
   filter((Voorwaarde %in% c("bedekking soorten pionierduingrasland",
                            "bedekking verruiging",
                            "bedekking overige exoten",
-                           "bedekking vergrassing") & Habitattype == "2120") |
-           Voorwaarde == "bedekking sleutelsoorten")
+                           "aantal sleutelsoorten") & Habitattype == "2120") |
+           Voorwaarde == "bedekking sleutelsoorten") %>%
+  mutate(Waarde = as.numeric(Waarde))
 
-cover_veg <- get_cover_veglayers(data_path = path_mhq_terr, 
-                                          record_ids = voorwaarden_2120_2130_bedekking$record_id_square) %>%
-  select(-layer_description) %>%
-  pivot_wider(names_from = layer_code, values_from = cover, names_prefix = "cover_", values_fill = 0) %>%
-  mutate(cover_veg = pmax(cover_K, 100 - cover_NB)) %>%
-  select(record_id_square = recording_givid,cover_veg)
+data_habitat_2120 <- data_habitat_2120_2130 %>%
+  filter(Habitattype == "2120")
 
-voorwaarden_2120_2130_bedekking_correct <- voorwaarden_2120_2130_bedekking %>%
-  left_join(cover_veg, by = "record_id_square") %>%
-  mutate(Waarde_corr = pmin(100, as.numeric(Waarde) / cover_veg * 100),
-         Waarde_corr = ifelse(is.na(cover_veg), as.numeric(Waarde), Waarde_corr),
-         Status_voorwaarde_corr = ifelse(Operator == "<=", Waarde_corr <= as.numeric(Referentiewaarde),
-                                         ifelse(Operator == ">=", Waarde_corr >= as.numeric(Referentiewaarde), NA))) %>%
-  select(ID, record_id = record_id_square, Criterium, Indicator, Voorwaarde, Belang, Waarde_orig = Waarde, cover_veg, Waarde_corr, Referentiewaarde, Status_voorwaarde, Status_voorwaarde_corr, Eenheid = EenheidWaarde, Type = TypeWaarde)
+data_soorten_2120_vergrassing <- data_soorten_2120_2130 %>%
+  semi_join(data_habitat_2120, by = "ID") %>%
+  filter(Kenmerk != "Festuca juncifolia St-Amans")
+
+lsvi_temp_vergrassing <- berekenLSVIbasis(Versie = "Versie 3",
+                         Kwaliteitsniveau = 1,
+                         Aggregatiemethode = "RapportageHR",
+                         Data_habitat = data_habitat_2120,
+                         Data_soortenKenmerken = data_soorten_2120_vergrassing) 
+
+voorwaarden_2120_vergrassing <- lsvi_temp_vergrassing$Resultaat_detail %>%
+  filter(Voorwaarde == "bedekking vergrassing") %>%
+  mutate(Waarde = ifelse(is.na(Waarde), 0, as.numeric(Waarde)),
+         Status_voorwaarde = ifelse(is.na(Status_voorwaarde), TRUE, Status_voorwaarde),
+         Verschilscore = ifelse(is.na(Verschilscore), 1, Verschilscore))
+  
+
+# voorwaarden_2120_2130_bedekking_correct <- voorwaarden_2120_2130_bedekking %>%
+#   left_join(cover_veg, by = "record_id_square") %>%
+#   mutate(Waarde_corr = pmin(100, as.numeric(Waarde) / cover_veg * 100),
+#          Waarde_corr = ifelse(is.na(cover_veg), as.numeric(Waarde), Waarde_corr),
+#          Status_voorwaarde_corr = ifelse(Operator == "<=", Waarde_corr <= as.numeric(Referentiewaarde),
+#                                          ifelse(Operator == ">=", Waarde_corr >= as.numeric(Referentiewaarde), NA))) %>%
+#   select(ID, record_id = record_id_square, Criterium, Indicator, Voorwaarde, Belang, Waarde_orig = Waarde, cover_veg, Waarde_corr, Referentiewaarde, Status_voorwaarde, Status_voorwaarde_corr, Eenheid = EenheidWaarde, Type = TypeWaarde)
 ```
 
 
 ```{r}
-voorwaarden_2120_2130_bedekking_correct %>%
-  select(-Status_voorwaarde, -Status_voorwaarde_corr) %>%
-  mutate(Waarde_orig = as.numeric(Waarde_orig),
-         Referentiewaarde = as.numeric(Referentiewaarde)) %>%
-  pivot_longer(cols = c("Waarde_orig", "Waarde_corr"), names_to = "type", values_to = "Waarde") %>%
-  mutate(Status = ifelse(Waarde <= Referentiewaarde, "gunstig", "ongunstig"),
-         show_facet = str_c(Voorwaarde, " (", Belang, ")")) %>%
-  ggplot(aes(x = type, fill = Status)) +
-  geom_bar() +
-  facet_wrap(~show_facet)
+# voorwaarden_2120_2130_bedekking_correct %>%
+#   select(-Status_voorwaarde, -Status_voorwaarde_corr) %>%
+#   mutate(Waarde_orig = as.numeric(Waarde_orig),
+#          Referentiewaarde = as.numeric(Referentiewaarde)) %>%
+#   pivot_longer(cols = c("Waarde_orig", "Waarde_corr"), names_to = "type", values_to = "Waarde") %>%
+#   mutate(Status = ifelse(Waarde <= Referentiewaarde, "gunstig", "ongunstig"),
+#          show_facet = str_c(Voorwaarde, " (", Belang, ")")) %>%
+#   ggplot(aes(x = type, fill = Status)) +
+#   geom_bar() +
+#   facet_wrap(~show_facet)
   
 ```
 
-```{r}
+```{r, eval = FALSE}
 voorwaarden_2120_2130_bedekking_correct %>%
   select(-Status_voorwaarde, -Status_voorwaarde_corr) %>%
   mutate(Waarde_orig = as.numeric(Waarde_orig),
@@ -474,8 +503,9 @@ voorwaarden_2120_2130_bedekking_correct %>%
 
 
 ```{r}
-voorwaarden_2120_2130_corrected_2 <- voorwaarden_2120_2130_bedekking_correct %>%
-  select(ID, record_id, Criterium, Indicator, Voorwaarde, Waarde = Waarde_corr, Eenheid, Type) %>%
+voorwaarden_2120_2130_corrected_2 <- voorwaarden_2120_2130_bedekking %>%
+  bind_rows(voorwaarden_2120_vergrassing) %>%
+  select(ID, record_id = record_id_square, Criterium, Indicator, Voorwaarde, Waarde, Eenheid = EenheidWaarde, Type = TypeWaarde) %>%
   mutate(Invoertype = NA,
          plot_type = "square"
          )
