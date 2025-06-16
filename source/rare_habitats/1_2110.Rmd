@@ -50,20 +50,26 @@ belang_2110 %>%
 
 ```{r}
 
+map_2110_v2023 <- map_2110_v2023 %>%
+  mutate(phab = ifelse(HAB1 == "2110", pHAB1,
+                       ifelse(HAB2 == "2110" & !is.na(HAB2), pHAB2, 0)))
+
 sbzh <- read_admin_areas(dsn = "sac") %>%
   select(sac_code)
 
 # 2023
 map_2110_area_tot <- map_2110_v2023 %>%
-  select(ID_2110) %>%
-  mutate(area_tot = round(drop_units(st_area(geometry)), 1)) %>%
-  st_drop_geometry()
+  mutate(area_tot = round(drop_units(st_area(geometry)) * phab / 100 , 1) ) %>%
+  st_drop_geometry() %>%
+  select(ID_2110, area_tot)
+
+check <- sum(map_2110_area_tot$area_tot) / 10000
 
 map_2110_area_sbzh <- map_2110_v2023 %>%
   st_intersection(sbzh) %>%
-  select(ID_2110, sac_code) %>%
-  mutate(area_sbzh = round(drop_units(st_area(geometry)), 1)) %>%
-  st_drop_geometry()
+  mutate(area_sbzh = round(drop_units(st_area(geometry)) * phab / 100 , 1)) %>%
+  st_drop_geometry() %>%
+  select(ID_2110, sac_code, area_sbzh)
 
 map_2110_area_v2023 <- map_2110_area_tot %>%
   left_join(map_2110_area_sbzh, by = "ID_2110") %>%
@@ -80,17 +86,21 @@ map_2110_area_v2023 <- map_2110_area_tot %>%
   mutate(versie_kartering = 2023)
 
 # 2017
+
+map_2110_v2017 <- map_2110_v2017 %>%
+  mutate(phab = ifelse(HAB1 == "2110", pHAB1,
+                       ifelse(HAB2 == "2110" & !is.na(HAB2), pHAB2, 0)))
+
 map_2110_area_tot <- map_2110_v2017 %>%
-  select(ID_2110) %>%
-  mutate(area_tot = round(drop_units(st_area(geometry)), 1)) %>%
-  st_drop_geometry()
+  mutate(area_tot = round(drop_units(st_area(geometry)) * phab / 100 , 1) ) %>%
+  st_drop_geometry() %>%
+  select(ID_2110, area_tot)
 
 map_2110_area_sbzh <- map_2110_v2017 %>%
-  select(ID_2110) %>%
   st_intersection(sbzh) %>%
-  select(ID_2110, sac_code) %>%
-  mutate(area_sbzh = round(drop_units(st_area(geometry)), 1)) %>%
-  st_drop_geometry()
+  mutate(area_sbzh = round(drop_units(st_area(geometry)) * phab / 100 , 1)) %>%
+  st_drop_geometry() %>%
+  select(ID_2110, sac_code, area_sbzh)
 
 map_2110_area_v2017 <- map_2110_area_tot %>%
   left_join(map_2110_area_sbzh, by = "ID_2110") %>%
