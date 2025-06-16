@@ -991,7 +991,8 @@ diff_index_hq %>%
 
 ```{r}
 lsvi_indicatoren_remeasured <- lsvi_indicator %>%
-  inner_join(select(mhq_su_remeasured, id, weight = weight_ws, date, periode, diff_years), by = "id") 
+  inner_join(select(mhq_su_remeasured, id, weight = weight_ws, date, periode, diff_years), by = "id") %>%
+  filter(!type %in% c("2190_a", "3140"))
 
 periodes <- lsvi_indicatoren_remeasured %>%
   group_by(main_type, periode) %>%
