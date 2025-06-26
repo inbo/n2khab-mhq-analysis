@@ -67,7 +67,7 @@ include_graphics("media/regions.png")
     - Aandeel habitat met goede kwaliteit
     - Habitattypische soorten
     - Ruimtelijke samenhang
-    - Drukken en bedregingen
+    - Drukken en bedreigingen
   - Toekomstperspectieven
 
 ## Rapportage
@@ -79,7 +79,7 @@ include_graphics("media/regions.png")
     - Aandeel habitat met goede kwaliteit: **Meetnet biotische habitatkwaliteit (MHQ)**
     - Habitattypische soorten
     - Ruimtelijke samenhang
-    - Drukken en bedregingen: **MNM**
+    - Drukken en bedreigingen: **MNM**
   - Toekomstperspectieven
 
 - Laatste rapportage in 2019

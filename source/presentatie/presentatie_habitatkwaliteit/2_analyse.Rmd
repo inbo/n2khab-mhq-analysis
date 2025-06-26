@@ -3,10 +3,10 @@
 ## Data
 
 - Gegevens ingezameld door INBO: INBOVEG databank 
-  - identificatie meetpunt, coördinaten: `inboddb::get_inboveg_header`
-  - habitattype: `inboddb::get_inboveg_classifier`
-  - bedekking soorten: `inboddb::get_inboveg_recording`
-  - structuurvariabelen: `inboddb::get_inboveg_qualifier`
+  - identificatie meetpunt, coördinaten: `inbodb::get_inboveg_header`
+  - habitattype: `inbodb::get_inboveg_classifier`
+  - bedekking soorten: `inbodb::get_inboveg_recording`
+  - structuurvariabelen: `inbodb::get_inboveg_qualifier`
   
 - Gegevens ingezameld door ANB: lokaal firebird-bestand (export uit Fieldmap)
 
@@ -138,9 +138,9 @@ sim_indicator <- tibble(indicator = c("bedekking invasieve exoten", "bedekking v
                         operator = c("<=", "<=", ">=")
                         ) %>%
   left_join(bind_rows(tibble(indicator = "bedekking invasieve exoten",
-                             waarde = seq(0, 100, 1)),
+                             waarde = seq(0, 100, 0.1)),
                       tibble(indicator = "bedekking vergrassing",
-                             waarde = seq(0, 100, 1)),
+                             waarde = seq(0, 100, 0.1)),
                       tibble(indicator = "aantal sleutelsoorten",
                              waarde = seq(0, 12, 1))),
             by = "indicator")
@@ -167,21 +167,30 @@ ref <- sim_indicator_ind %>%
 
 - beoordeling LSVI-indicator
   - binaire uitspraak gunstig of ongunstig
-  - weining nuance, veranderingen minder snel gedetecteerd
-  
+  - weinig nuance, veranderingen minder snel gedetecteerd
 
-```{r, echo=FALSE}
+```{r figbin, echo=FALSE, eval = FALSE}
 sim_indicator_ind %>%
   filter(var == "toestand_binair") %>%
   ggplot(aes(x = waarde, y = habitatkwaliteit, group = var, colour = var)) +
-  geom_line(alpha = 0.5) +
+  geom_point(alpha = 0.5) +
   geom_vline(data = ref, aes(xintercept = referentiewaarde), linetype = 2) +
-  facet_wrap(~indicator, scales = "free", ncol = 2) 
+  facet_wrap(~indicator, scales = "free", ncol = 3) +
+  theme(legend.position = "none")
+
+ggsave("media/ggplot_1.pdf", width = 9, height = 3)
 ```
+
+```{r fig1, echo = FALSE, out.width="100%", fig.align='center'}
+include_graphics("media/ggplot_1.pdf")
+```
+
+
+
 
 ## Berekening kwaliteitsindex per meetpunt
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, eval =FALSE}
 tibble(
   indicatortype = c(rep("positief",3), rep("negatief", 3)),
   inidcatorwaarde = rep(c("waarde = min. waarde",
@@ -191,21 +200,29 @@ tibble(
   kable(booktabs = TRUE) %>%
   kable_styling()
 ```
-
-- tussenliggende waarden via interpolatie
+- kwaliteitsindex indicator (verschilscore)
+  - gestandaardiseerde afstand (0-1) tot referentiewaarde
+  - `-` als indicator ongunstig
+  - `+` als indicator gunstig 
 - globale kwaliteitsindex
   - gemiddelde indexwaarde van indicatoren
   - harmonisch gemiddelde indexwaarde van indicatoren
   
 ## Berekening kwaliteitsindex per meetpunt
 
-```{r, echo=FALSE, message=FALSE}
+```{r fig2, echo=FALSE, message=FALSE, eval = FALSE}
 sim_indicator_ind %>%
   ggplot(aes(x = waarde, y = habitatkwaliteit, group = var, colour = var)) +
-  geom_line(alpha = 0.5) +
+  geom_point(alpha = 0.5) +
   geom_vline(data = ref, aes(xintercept = referentiewaarde), linetype = 2) +
-  facet_wrap(~indicator, scales = "free", ncol = 2) 
+  facet_wrap(~indicator, scales = "free", ncol = 3) 
+
+ggsave("media/ggplot_2.pdf", width = 9, height = 3)
 ```
+```{r fig2bis, echo = FALSE, fig.align='center', out.width="100%"}
+include_graphics("media/ggplot_2.pdf")
+```
+
 ```{r, echo = FALSE}
 ind1 <- sim_indicator_ind %>%
   filter(var == "index") %>%
@@ -254,25 +271,318 @@ sim_index_mean <- comb %>%
 
 ## Berekening kwaliteitsindex per meetpunt
 
-```{r, echo = FALSE}
+```{r fig3, echo = FALSE, eval = FALSE}
 sim_index_mean %>%
   ggplot(aes(x = waarde_sleutelsoorten, y = index_mean, group = waarde_inv_exoten, colour = factor(waarde_inv_exoten))) +
-  geom_line() +
+  geom_point() +
   facet_wrap(~ "bedekking vergrassing" + waarde_vergrassing) +
   labs(colour = "bedekking invasieve exoten", x = "aantal sleutelsoorten")
+
+ggsave("media/ggplot_3.pdf", width = 8, height = 5)
 ```
-```{r, eval = FALSE}
+
+```{r fig33, echo = FALSE, fig.align='center', out.width="80%"}
+include_graphics("media/ggplot_3.pdf")
+```
+
+```{r , eval = FALSE, echo = FALSE}
 sim_index_mean %>%
   ggplot(aes(x = waarde_sleutelsoorten, y = index_harm_mean, group = waarde_inv_exoten, colour = factor(waarde_inv_exoten))) +
   geom_line() +
   facet_wrap(~waarde_vergrassing)
 ```
 
+## Berekening kwaliteitsindex per meetpunt
 
+- globale kwaliteitsindex
+  - gemiddelde indexwaarde van indicatoren --> Habitatrapportage
+  - harmonisch gemiddelde indexwaarde van indicatoren --> LSVI package
 
 ## Berekening toestand habitatkwaliteit Vlaamse schaal
 
+- analyse per habitattype
+- meest recente opname per meetpunt
+- gewichten per stratum (combinaties ligging SBZ/habitatsubtypes)
+  - verhouding oppervlakte stratum en aantal meetpunten
+- schatting habitataandeel
+    - in gunstige toestand (globaal)
+    - in gunstige toestand per indicator
+- design-based `survey::svyglm` (zelfde methode als rapportage 2019)
+
+## Berekening toestand habitatkwaliteit Vlaamse schaal
+
+```{r, echo = FALSE}
+path_results <- fileman_up("n2khab-mhq-data")
+
+status_flanders <- read_vc(root = file.path(path_results, "processed/lsvi_mhq/grassland_marsh/result"), 
+                     file = "status_habitat_gr_bm")
+
+status_indicatoren <- read_vc(root = file.path(path_results, "processed/lsvi_mhq/grassland_marsh/result"), 
+                     file = "status_indicatoren_gr_bm")
+
+trend_flanders <- read_vc(root = file.path(path_results, "processed/lsvi_mhq/grassland_marsh/result"), 
+                     file = "trend_habitat_gr_bm")
+
+trend_indicatoren <- read_vc(root = file.path(path_results, "processed/lsvi_mhq/grassland_marsh/result"), 
+                     file = "trend_indicatoren_gr_bm")
+
+mc_nemar <- read_vc(root = file.path(path_results, "processed/lsvi_mhq/grassland_marsh/result"), 
+                     file = "mc_nemar_gr_bm")
+
+diff_index_hq <- read_vc(root = file.path(path_results, "processed/lsvi_mhq/grassland_marsh/result"), 
+                     file = "trend_index_hq_gr_bm")
+
+diff_index_ind <- read_vc(root = file.path(path_results, "processed/lsvi_mhq/grassland_marsh/result"), 
+                     file = "trend_index_ind_gr_bm")
+```
+
+```{r, echo=FALSE, eval = FALSE}
+
+beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
+
+status_flanders %>%
+  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
+  filter(sbzh != "Buiten") %>%
+  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
+         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
+  ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling)) +
+  geom_point(size = 3, show.legend = TRUE) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0.75, linetype = 2) +
+  facet_wrap(~ schaal) +
+  labs(x = "Habitattype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
+  scale_color_manual(values = beoordeling_colors, drop = FALSE) +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+  coord_flip() +
+  theme(legend.position = "bottom")
+
+ggsave("media/ggplot_4.pdf", width = 7, height = 5)
+  
+```
+```{r fig4, echo = FALSE, fig.align='center', out.width="70%"}
+include_graphics("media/ggplot_4.pdf")
+```
+
+## Berekening toestand habitatkwaliteit Vlaamse schaal
+
+```{r, echo= FALSE, eval = FALSE}
+status_indicatoren %>%
+  filter(habitattype == "6510") %>%
+  filter(type_resultaat %in% c("Habitattype")) %>%
+  ggplot(aes(x = indicator, 
+             y = aandeel_gunstig/100, 
+             shape = belang,
+             ymin = aandeel_gunstig_llci/100, 
+             ymax = aandeel_gunstig_ulci/100,
+         colour = beoordeling)) + 
+  geom_point(size = 4, alpha = 0.8) +
+  geom_errorbar(width = 0.3, alpha = 0.8, linewidth = 1) +
+  facet_grid(criterium ~ habitattype, scales = "free_y", space = "free") + 
+  coord_flip() +
+  labs(x = "Indicator",
+       y = "Aandeel habitat in goede toestand per indicator") + 
+  geom_hline(aes(yintercept = 0.75), 
+             colour = "black", 
+             size = 0.5, 
+             linetype = "dashed", 
+             alpha = 0.5)  +
+   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom",) +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1))
+
+ggsave("media/ggplot_5.pdf", width = 7, height = 5)
+```
+```{r fig5, echo = FALSE, fig.align='center', out.width="70%"}
+include_graphics("media/ggplot_5.pdf")
+```
+
+
 ## Berekening trend habitatkwaliteit
 
-# Integratie resultaten in HR rapportage
+- analyse per habitattype
+- meetpunten met gepaarde metingen
+  - meetcyclus 2014 - 2021
+  - meetcyclus 2022 - 2024 (nog niet afgerond)
+- gewichten per stratum (combinaties ligging SBZ/habitatsubtypes)
+  - verhouding oppervlakte stratum en aantal meetpunten met gepaarde metingen
+  
+## Berekening trend habitatkwaliteit: binaire uitspraak
+  
+- schatting absoluut verschil in aandeel habitat (%)
+    - in gunstige toestand (globaal)
+    - in gunstige toestand per indicator
+- GLMM via `INLA`
+  - binomiale verdeling
+  - random effect voor locatie
+  - schatting absoluut verschil proporties via `inla.posterior.sample`
+- classificatie trend/verschil volgens `effectclass` package
 
+## Berekening trend habitatkwaliteit: binaire uitspraak
+
+```{r, echo = FALSE, eval = FALSE}
+
+trend_colors <- c("gunstig - gunstig" = inbo_donkergroen, "ongunstig - ongunstig" = inbo_donkerblauw, "gunstig - ongunstig" = inbo_rood,
+                  "ongunstig - gunstig" = inbo_lichtgroen)
+
+mc_nemar %>% 
+  filter(type_resultaat == "Habitattype") %>%
+  ggplot(aes(x = habitattype, y = n, fill = trend_local)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Habitattype", y = "Aantal meetpunten", fill = "Wijziging per meetpunt") +
+  scale_fill_manual(values = trend_colors)
+
+ggsave("media/ggplot_6.pdf", width = 6, height = 4)
+```
+
+```{r fig6, echo = FALSE, fig.align='center', out.width="80%"}
+include_graphics("media/ggplot_6.pdf")
+```
+
+## Berekening trend habitatkwaliteit: binaire uitspraak
+
+```{r, echo = FALSE, eval = FALSE}
+library(effectclass)
+
+klasse_color <- c(rev(traffic_palette(7)), "grey65", "grey35", "grey50") %>%
+  setNames(
+    c("++", "+", "+~", "~", "-~", "-", "--", "?+", "?-", "?")
+  ) 
+klasse_color[4] <- inbo_steun_blauw
+
+trend_flanders %>%
+  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+  filter(sbzh != "Buiten") %>%
+  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
+  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
+         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
+  ggplot(aes(x = habitattype, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100, label = klasse, colour = klasse)) +
+  geom_point(size = 7) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = c(-0.12, 0.12), linetype = 3) +
+  geom_text(size = 4, colour = "white") +
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand",
+       x = "Habitattype") +
+  facet_wrap(~ schaal) +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.70,0.70)) +
+  scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  labs(colour = "Interpretatie trend") +
+  coord_flip() +
+  theme(legend.position = "bottom")
+  
+ggsave("media/ggplot_7.pdf", width = 7, height = 5)
+```
+```{r fig7, echo = FALSE, fig.align='center', out.width="70%"}
+include_graphics("media/ggplot_7.pdf")
+```
+## Berekening trend habitatkwaliteit: kwaliteitsindex
+  
+- gemiddeld verschil (per meetpunt)
+    - kwaliteitsindex (globaal)
+    - kwaliteitsindex per indicator
+- gewogen gemiddelde
+- classificatie trend/verschil volgens `effectclass` package
+
+## Berekening trend habitatkwaliteit: kwaliteitsindex
+
+```{r, echo = FALSE, eval = FALSE}
+diff_index_hq %>%
+  filter(sbzh != "Buiten") %>%
+  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
+  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
+         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
+  ggplot(aes(x = habitattype, y = index_diff_mean, ymin = index_diff_llci_0.95, ymax = index_diff_ulci_0.95, label = klasse, colour = klasse)) +
+  geom_point(size = 7) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = c(-0.05, 0.05), linetype = 3) +
+  geom_text(size = 4, colour = "white") +
+  labs(y = "Gemiddeld verschil habitatkwaliteitsindex",
+       x = "Habitattype") +
+  facet_wrap(~ schaal) +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(limits = c(-0.25, 0.25)) +
+  scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  labs(colour = "Interpretatie verschil") +
+  coord_flip() +
+  theme(legend.position = "bottom")
+
+ggsave("media/ggplot_8.pdf", width = 7, height = 5)
+```
+```{r fig8, echo = FALSE, fig.align='center', out.width="70%"}
+include_graphics("media/ggplot_8.pdf")
+```
+
+## Berekening trend habitatkwaliteit per indicator: binaire uitspraak
+
+```{r, echo = FALSE, eval = FALSE}
+trend_indicatoren %>%
+  filter(habitattype == "1330") %>%
+  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+  ggplot(aes(x = indicator, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100, label = klasse, 
+             shape = belang,
+             colour = klasse)) +
+  geom_point(size = 7) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = c(-0.12, 0.12), linetype = 3) +
+  geom_text(size = 4, colour = "white") +
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand per indicator",
+       x = "Habitattype") +
+  facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(-1,1)) +
+  scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  labs(colour = "Interpretatie trend") +
+  coord_flip() +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom")
+
+ggsave("media/ggplot_9.pdf", width = 7, height = 5)
+```
+```{r fig9, echo = FALSE, fig.align='center', out.width="70%"}
+include_graphics("media/ggplot_9.pdf")
+```
+
+## Berekening trend habitatkwaliteit per indicator: kwaliteitsindex
+
+```{r, echo = FALSE, eval = FALSE, fig.height= 6, fig.width= 8}
+diff_index_ind %>%
+  filter(habitattype == "1330") %>%
+  filter(type_resultaat %in% c("Habitattype")) %>%
+  ggplot(aes(x = indicator, 
+             y = index_diff_mean, 
+            # size = belang,
+             ymin = index_diff_llci_0.95, 
+             ymax = index_diff_ulci_0.95,
+             label = klasse,
+             colour = klasse,
+             shape = belang)) + 
+  geom_point(size = 7 ) +
+  geom_errorbar(width = 0.3) +
+    geom_text(colour = "white",
+              size = 4) +
+  facet_grid(criterium ~ habitattype, scales = "free_y", space = "free") + 
+  coord_flip() +
+  labs(x = "Indicator",
+       y = "Gemiddeld verschil kwaliteitsindex",
+       colour = "Interpretatie verschil",
+       shape = "Belang indicator") + 
+  geom_hline(yintercept = 0, linetype = "dashed")  +
+  geom_hline(yintercept = c(-0.1,0.1), linetype = 3) +
+    lims(y = c(-1.5, 1.5)) +
+  scale_x_discrete(limits = rev) +
+  scale_color_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  theme(strip.text.y = element_text(angle = 0), 
+        legend.position = "bottom", legend.box = "vertical") +
+  guides(shape = guide_legend(order = 1),
+         colour = guide_legend(order = 2))
+
+ggsave("media/ggplot_10.pdf", width = 7, height = 5)
+```
+```{r fig10, echo = FALSE, fig.align='center', out.width="70%"}
+include_graphics("media/ggplot_10.pdf")
+```

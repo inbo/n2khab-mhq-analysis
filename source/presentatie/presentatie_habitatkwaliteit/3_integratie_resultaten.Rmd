@@ -1,0 +1,29 @@
+# Integratie resultaten
+
+## Vlaams rapport
+
+- Beoordeling Staat van instandhouding (SVI) habitattypen
+  - Areaal
+  - Oppervlakte
+  - Structuur en functies
+    - **Aandeel habitat met goede kwaliteit**
+    - Habitattypische soorten
+    - Ruimtelijke samenhang
+    - Drukken en bedreigingen
+  - Toekomstperspectieven
+
+## Vlaams rapport
+
+- Methodologie SVI
+- Resultaten, bespreking en conclusies per habitatgroep
+- Rapport 2025 in opmaak
+  - Coördinatie Jeroen VDB
+  - Via Rmarkdown (ondersteuning Raïsa)
+  
+## Europese rapportage
+
+- schaal België
+- integratie resultaten Vlaanderen, Wallonië, Brussel HG
+- SVI habitattypen per biogeografische regio
+  - Vlaanderen doet de Atlantische regio
+  - Wallonië doet Continentale regio 

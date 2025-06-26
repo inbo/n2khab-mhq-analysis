@@ -30,7 +30,8 @@ opts_chunk$set(
   dev = "cairo_pdf"
 )
 opts_chunk$set(message = FALSE,
-               warning = FALSE)
+               warning = FALSE,
+               cache = FALSE)
 
 
 library(tidyverse)
