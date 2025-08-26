@@ -1625,7 +1625,7 @@ calc_dead_wood <- function(data_path,
     big_dead_wood <- trees_a3a4 %>%
       left_join(plot_weights, by = c("record_id")) %>%
       group_by(record_id, area_a4_m2_plot) %>%
-      summarise(n_big_dead = sum((dbh_mm > 400) * (status_tree == "dead"), na.rm = TRUE)) %>%
+      summarise(n_big_dead = sum((dbh_mm > 400) * (status_tree == "dood"), na.rm = TRUE)) %>%
       ungroup() %>%
       mutate(value = n_big_dead * 10000 / area_a4_m2_plot,
              variable = "n_big_dead_ha") %>%
@@ -1932,8 +1932,9 @@ habitatGemiddeldeVW <- function(data, stratSBZH = TRUE){
         param_Vlaanderen <- geefParameters(model_Vlaanderen, type = "gaussian")
 
         output_Vlaanderen <- data_versie %>%
-          mutate(SBZH = "Binnen & Buiten") %>%
-          group_by(Versie, Habitattype, SBZH, Indicator, Voorwaarde) %>%
+          mutate(SBZH = "Binnen & Buiten",
+                 type_resultaat = "Habitattype") %>%
+          group_by(Versie, type_resultaat, Habitattype, SBZH, Indicator, Voorwaarde) %>%
           summarise(Habitatsubtype = paste(unique(Habitatsubtype), collapse = "; "),
                     nObs = n(),
                     sumWeightsPlot = sum(PlotWeight)/100,
@@ -1956,7 +1957,8 @@ habitatGemiddeldeVW <- function(data, stratSBZH = TRUE){
           param_SBZH <- geefParameters(model_SBZH, type ="gaussian")
 
           output_SBZH <- data_versie %>%
-            group_by(Versie, Habitattype, SBZH, Indicator, Voorwaarde) %>%
+            mutate(type_resultaat = "SBZH") %>%
+            group_by(Versie, type_resultaat, Habitattype, SBZH, Indicator, Voorwaarde) %>%
             summarise(Habitatsubtype = paste(unique(Habitatsubtype), collapse = "; "),
                       nObs = n(),
                       sumWeightsPlot = sum(PlotWeight)/100,
@@ -1990,8 +1992,9 @@ habitatGemiddeldeVW <- function(data, stratSBZH = TRUE){
           param_subt <- geefParameters(model_subt, type = "gaussian")
 
           output_subt <- data_versie %>%
-            mutate(SBZH = "Binnen & Buiten") %>%
-            group_by(Versie, Habitattype, Habitatsubtype, SBZH, Indicator, Voorwaarde) %>%
+            mutate(SBZH = "Binnen & Buiten",
+                   type_resultaat = "Habitatsubtype") %>%
+            group_by(Versie, type_resultaat, Habitattype, Habitatsubtype, SBZH, Indicator, Voorwaarde) %>%
             summarise( nObs = n(),
                        sumWeightsPlot = sum(PlotWeight)/100,
                        sumWeightStratum = sum(StratumWeight),

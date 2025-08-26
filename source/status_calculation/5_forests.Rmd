@@ -911,3 +911,96 @@ lsvi_voorwaarde_remeasured %>%
   facet_wrap(~main_type)
 
 ```
+
+
+## Dik dood hout
+
+```{r}
+data_voorwaarden <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_name, "/input")),
+                             file = str_c("data_voorwaarden_", habcat_code))
+
+data_voorwaarden_moneos <- read_vc(root = file.path(path_lsvi, "lsvi_mhq/moneos/input"),
+                             file = "data_voorwaarden_moneos")
+
+dik_dood_hout <- data_voorwaarden %>%
+  bind_rows(data_voorwaarden_moneos) %>%
+  filter(Indicator == "hoeveelheid dik dood hout") %>%
+  rename(id = ID)
+
+dik_dood_hout_recent <- dik_dood_hout %>%
+  inner_join(select(mhq_su_recent, id, type, type_analysis, weight, in_sac, date), by = "id") 
+
+dik_dood_hout_remeasured <- dik_dood_hout %>%
+  inner_join(select(mhq_su_remeasured, id, point_code, type, type_analysis, weight, date, periode, diff_years, in_sac), by = "id") 
+
+
+```
+
+### Toestand
+
+```{r}
+dik_dood_hout_status <- dik_dood_hout_recent %>%
+  mutate(Versie = "Versie 3",
+         WeightComb = weight,
+         PlotWeight = 1,
+         StratumWeight = weight,
+         Habitatsubtype = type_analysis,
+         Habitattype = str_sub(type_analysis, 1, 4),
+         SBZH = ifelse(in_sac, "Binnen", "Buiten")) %>%
+  filter(Habitattype != "9110") %>%
+  habitatGemiddeldeVW()
+
+dik_dood_hout_status <- dik_dood_hout_status %>%
+  filter(SBZH == "Binnen & Buiten") %>%
+  mutate(schaal = "Vlaanderen") %>%
+  select(Versie, type_resultaat, schaal, Indicator, Voorwaarde, Habitattype, Habitatsubtype, SBZH, n_obs = nObs, Gemiddelde, Gemiddelde_LLCI, Gemiddelde_ULCI) %>%
+  arrange(Habitattype)
+
+colnames(dik_dood_hout_status) <- str_to_lower(colnames(dik_dood_hout_status))
+
+dik_dood_hout_status %>%
+  write_vc(root = output_path,
+           file = str_c("status_dikdoodhout"),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "indicator"),
+           strict = FALSE)
+
+dik_dood_hout_status %>%
+  write_csv2(str_c(output_path, "/status_dikdoodhout.csv"))
+```
+
+### Trend
+
+```{r}
+dik_dood_hout_trend <- dik_dood_hout_remeasured %>%
+    mutate(Versie = "Versie 3.0",
+         WeightComb = weight,
+         PlotWeight = 1,
+         StratumWeight = weight,
+         Habitatsubtype = type_analysis,
+         Habitattype = str_sub(type_analysis, 1, 4),
+         SBZH = ifelse(in_sac, "Binnen", "Buiten")) %>%
+  select(-date, -record_id, -id) %>%
+  pivot_wider(names_from = periode,
+              values_from = Waarde) %>%
+  mutate(Waarde = c_2 - c_1) %>%
+  filter(Habitattype != "9110") %>%
+  habitatGemiddeldeVW()
+
+dik_dood_hout_trend <- dik_dood_hout_trend %>%
+  filter(SBZH == "Binnen & Buiten") %>%
+  mutate(schaal = "Vlaanderen") %>%
+  select(Versie, type_resultaat, schaal, Indicator, Voorwaarde, Habitattype, Habitatsubtype, SBZH, n_obs = nObs, Verschil = Gemiddelde, Verschil_LLCI = Gemiddelde_LLCI, Verschil_ULCI = Gemiddelde_ULCI) %>%
+  arrange(Habitattype)
+
+colnames(dik_dood_hout_trend) <- str_to_lower(colnames(dik_dood_hout_trend))
+
+dik_dood_hout_trend %>%
+  write_vc(root = output_path,
+           file = str_c("trend_dikdoodhout"),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "indicator"),
+           strict = FALSE)
+
+dik_dood_hout_trend %>%
+  write_csv2(str_c(output_path, "/trend_dikdoodhout.csv"))
+```
+
