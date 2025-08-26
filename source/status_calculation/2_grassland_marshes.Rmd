@@ -242,8 +242,7 @@ status_flanders %>%
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
-  coord_flip() +
-  theme(legend.position = "bottom")
+  coord_flip()
   
 ```
 
@@ -355,6 +354,8 @@ for (habt in unique(status_indicatoren$habitattype)) {
   plot_ht <- status_indicatoren %>%
   filter(habitattype == habt) %>%
   filter(type_resultaat %in% c("Habitattype")) %>%
+  mutate(belang = ifelse(belang == "b", "Belangrijk",
+                         ifelse(belang == "zb", "Zeer belangrijk", NA))) %>%
   ggplot(aes(x = indicator, 
              y = aandeel_gunstig/100, 
              shape = belang,
@@ -362,19 +363,20 @@ for (habt in unique(status_indicatoren$habitattype)) {
              ymax = aandeel_gunstig_ulci/100,
          colour = beoordeling)) + 
   geom_point(size = 4, alpha = 0.8) +
-  geom_errorbar(width = 0.3, alpha = 0.8, linewidth = 1) +
+  geom_errorbar(width = 0.2, alpha = 0.8) +
   facet_grid(criterium ~ habitattype, scales = "free_y", space = "free") + 
   coord_flip() +
   labs(x = "Indicator",
-       y = "Aandeel habitat in goede toestand per indicator") + 
+       y = "Aandeel habitat in goede toestand per indicator",
+       colour = "Beoordeling",
+       shape = "Belang indicator") + 
   geom_hline(aes(yintercept = 0.75), 
              colour = "black", 
              size = 0.5, 
              linetype = "dashed", 
              alpha = 0.5)  +
    scale_color_manual(values = beoordeling_colors, drop = FALSE) +
-  theme(strip.text.y = element_text(angle = 0), 
-        legend.position = "bottom",) +
+  theme(strip.text.y = element_text(angle = 0)) +
   scale_y_continuous(labels = scales::percent, limits = c(0,1))
   
   plot(plot_ht)
@@ -539,11 +541,46 @@ lsvi_habitat_trend %>%
   scale_y_continuous(labels = scales::percent, limits = c(-0.70,0.70)) +
   scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
   labs(colour = "Interpretatie trend") +
-  coord_flip() +
-  theme(legend.position = "bottom")
+  coord_flip()
   
 
 ```
+```{r}
+
+reference <- 0
+thresholds <- c(-0.12, 0.12) 
+
+lsvi_habitat_trend %>%
+  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+  filter(sbzh != "Buiten") %>%
+  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
+  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
+         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
+  ggplot(aes(x = habitattype, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100,
+             width = 0.2)) +
+  stat_effect(reference = reference, 
+              threshold = thresholds,
+              show.legend = TRUE,
+              labels = class_labels(lang = "nl")
+              ) +
+#   geom_point(size = 7) +
+#   geom_errorbar(width = 0.2, show.legend = TRUE) +
+#   geom_hline(yintercept = 0, linetype = 2) +
+#   geom_hline(yintercept = c(-0.12, 0.12), linetype = 3) +
+#   geom_text(size = 4, colour = "white") +
+  labs(y = "Absoluut verschil aandeel habitat in goede toestand",
+       x = "Habitattype",
+       colour = "Interpretatie trend") +
+  facet_wrap(~ schaal) +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.70,0.70)) +
+  # scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
+  # labs(colour = "Interpretatie trend") +
+  coord_flip()
+  # theme(legend.position = "bottom")
+```
+
+
 
 #### Mc Nemar Test
 
@@ -770,7 +807,7 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
   plot <- lsvi_indicator_trend %>%
   filter(habitattype == ht) %>%
   filter(parameter == "verschil_aandeel_gunstig_abs") %>%
-  ggplot(aes(x = indicator, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100, label = klasse, 
+  ggplot(aes(x = indicator, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100, label = klasse,
              shape = belang,
              colour = klasse)) +
   geom_point(size = 7) +
@@ -784,7 +821,8 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
   scale_x_discrete(limits = rev) +
   scale_y_continuous(labels = scales::percent, limits = c(-1,1)) +
   scale_colour_manual(values = klasse_color, labels = class_labels(lang = "nl")) +
-  labs(colour = "Interpretatie trend") +
+  labs(colour = "Interpretatie trend",
+       label = "test") +
   coord_flip() +
   theme(strip.text.y = element_text(angle = 0), 
         legend.position = "bottom")
@@ -794,6 +832,40 @@ for (ht in unique(lsvi_indicator_trend$habitattype)) {
 }
 
 ```
+
+```{r}
+
+for (ht in unique(lsvi_indicator_trend$habitattype)) {
+  
+  plot <- lsvi_indicator_trend %>%
+    filter(habitattype == ht) %>%
+    filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+    mutate(belang = ifelse(belang == "b", "belangrijk",
+                           ifelse(belang == "zb", "zeer belangrijk", NA))) %>%
+    ggplot(aes(x = indicator, y = mean/100, ymin = llci_0.95/100, ymax = ulci_0.95/100,
+               shape = belang, width = 0.2)) +
+    stat_effect(reference = reference, 
+                threshold = thresholds,
+                labels = class_labels(lang = "nl"),
+                show.legend = TRUE
+                ) +
+    labs(y = "Absoluut verschil aandeel habitat in goede toestand per indicator",
+         x = "Indicator",
+         colour = "Interpretatie trend",
+         shape = "Belang indicator") +
+    facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
+    scale_x_discrete(limits = rev) +
+    scale_y_continuous(labels = scales::percent, limits = c(-1,1)) +
+    coord_flip() +
+    theme(strip.text.y = element_text(angle = 0)) +
+    guides(shape = guide_legend(override.aes = aes(label = "")))
+  
+  plot(plot)
+  
+}
+
+```
+
 
 #### Gemiddeld verschil kwaliteitsindex per indicator
 
@@ -859,6 +931,51 @@ for (habt in unique(diff_index_ind$habitattype)) {
   
 }
 ```
+
+
+```{r}
+
+labels_kwaliteitindex <- class_labels(lang = "nl") %>%
+  str_replace("toename", "verbetering") %>%
+  str_replace("afname", "achteruitgang")
+
+for (ht in unique(diff_index_ind$habitattype)) {
+  
+  plot_ht <- diff_index_ind %>%
+  filter(habitattype == ht) %>%
+  filter(type_resultaat %in% c("Habitattype")) %>%
+    mutate(belang = ifelse(belang == "b", "belangrijk",
+                           ifelse(belang == "zb", "zeer belangrijk", NA))) %>%
+  ggplot(aes(x = indicator, 
+             y = index_diff_mean, 
+             ymin = index_diff_llci_0.95, 
+             ymax = index_diff_ulci_0.95,
+             shape = belang,
+             width = 0.2)) + 
+    stat_effect(reference = reference, 
+                threshold = c(-0.1, 0.1),
+                labels = labels_kwaliteitindex,
+                show.legend = TRUE
+                ) +
+    labs(y = "Gemiddeld verschil kwaliteitsindex",
+         x = "Indicator",
+         colour = "Interpretatie trend",
+         shape = "Belang indicator") +
+    facet_grid(criterium ~ habitattype, scales = "free", space = "free") +
+    lims(y = c(-1.5, 1.5)) +
+    scale_x_discrete(limits = rev) +
+    coord_flip() +
+    theme(strip.text.y = element_text(angle = 0)) +
+    guides(shape = guide_legend(override.aes = aes(label = ""),
+                                order = 1))
+  
+  plot(plot_ht)
+  
+}
+
+```
+
+
 
 ```{r, eval = FALSE}
 
