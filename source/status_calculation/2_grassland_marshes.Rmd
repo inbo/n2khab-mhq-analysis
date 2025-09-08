@@ -766,6 +766,14 @@ periodes <- lsvi_indicatoren_remeasured %>%
             year_max = year(max(date))) %>%
   ungroup()
 
+check_periodes <- lsvi_indicatoren_remeasured %>%
+  group_by(main_type, periode, indicator) %>%
+  summarise(n = n(),
+            type = str_c(unique(type_analysis), collapse = "; "),
+            year_min = year(min(date)),
+            year_max = year(max(date))) %>%
+  ungroup()
+
 trend_indicator <- bind_rows(
   calc_status_indicator(lsvi_indicatoren_remeasured %>%
                                                 filter(periode == "c_1")) %>%

@@ -792,6 +792,20 @@ periodes <- lsvi_indicatoren_remeasured %>%
             year_max = year(max(date))) %>%
   ungroup()
 
+# remove indicators with less than 5 repeated measurements
+indicator_remove <- lsvi_indicatoren_remeasured %>%
+  group_by(main_type, periode, indicator) %>%
+  summarise(n = n(),
+            type = str_c(unique(type, collapse = "; ")),
+            year_min = year(min(date)),
+            year_max = year(max(date))) %>%
+  ungroup() %>%
+  filter(n < 5)
+
+lsvi_indicatoren_remeasured <- lsvi_indicatoren_remeasured %>%
+  anti_join(indicator_remove, by = "indicator")
+  
+
 trend_indicator <- bind_rows(
   calc_status_indicator(lsvi_indicatoren_remeasured %>%
                                                 filter(periode == "c_1")) %>%
@@ -868,7 +882,8 @@ indicatoren_wide <- lsvi_indicatoren_remeasured %>%
   select(point_code, sbzh, periode, date, main_type, type, weight, criterium, indicator, belang,  status_indicator, index = verschilscore) %>%
   pivot_wider(names_from = "periode", values_from = c("status_indicator", "index", "date", "type", "weight")) %>%
   mutate(diff_year = year(date_c_2) - year(date_c_1),
-         diff_index = index_c_2 - index_c_1)
+         diff_index = index_c_2 - index_c_1) %>%
+  anti_join(indicator_remove, by = "indicator")
 
 ```
 
