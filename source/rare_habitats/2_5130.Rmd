@@ -147,12 +147,15 @@ status_indicator_5130 <- status_indicator_vl_5130_gebied %>%
   bind_rows(status_indicator_sbzh_5130_gebied) %>%
   mutate(versie = "Versie 3",
          schaal = "Vlaanderen") %>%
-  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, aandeel_gunstig_min, aandeel_gunstig_max, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
+  mutate(aandeel_gunstig = aandeel_gunstig_min + (aandeel_gunstig_max - aandeel_gunstig_min) / 2 ,
+         aandeel_gunstig_llci = aandeel_gunstig_min,
+         aandeel_gunstig_ulci = aandeel_gunstig_max) %>%
+  select(versie, schaal, type_resultaat, habitattype, sbzh, criterium, indicator, belang, aandeel_gunstig, aandeel_gunstig_llci, aandeel_gunstig_ulci, beoordeling, opp_gunstig_ha, opp_ongunstig_ha, opp_onbekend_ha)
   
-write_csv2(status_indicator_5130, "../output/status_indicator_kartering.csv")
+write_csv2(status_indicator_5130, "../output/status_indicatoren_5130_orig.csv")
 
 status_indicator_5130 %>%
-  write_vc("status_indicatoren_5130", root = output_path, sorting = c("type_resultaat", "indicator"))
+  write_vc("status_indicatoren_5130", root = output_path, sorting = c("type_resultaat", "indicator"), strict = FALSE)
 ```
 
 ## Analyse per habitatvlek
