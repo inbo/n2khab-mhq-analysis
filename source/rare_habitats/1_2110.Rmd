@@ -38,6 +38,34 @@ belang_2110 <- lsvi_2110 %>%
   select(indicator = Indicator,
          belang = Belang,
          criterium = Criterium)
+
+belang_habt <- geefInvoervereisten(Versie = "Versie 3", Kwaliteitsniveau = 1) %>%
+  distinct(Habitattype, Habitatsubtype, Criterium, Indicator, Belang, Beoordeling) %>%
+  arrange(Habitatsubtype)
+
+write_csv2(belang_habt, "../output/belang_indicatoren.csv")
+
+overzicht_belang_zb <- belang_habt %>%
+  filter(Belang == "zb") %>%
+  group_by(Indicator) %>%
+  summarise(n_habt = n_distinct(Habitattype),
+            habitatypen = str_c(unique(Habitattype), collapse = "; ")) %>%
+  ungroup() %>%
+  arrange(desc(n_habt))
+
+overzicht_belang_all <- belang_habt %>%
+  group_by(Indicator) %>%
+  mutate(habitattypen = str_c(unique(str_c(Habitattype, " (", Belang, ")")), collapse = "; ")) %>%
+  ungroup() %>%
+  group_by(Indicator, Belang, habitattypen) %>%
+  summarise(n_habt = n_distinct(Habitattype)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = Belang,
+              values_from = n_habt, names_prefix = "n_habt_", values_fill = 0) %>%
+  arrange(desc(n_habt_zb)) %>%
+  select(indicator = Indicator, n_habt_zb, n_habt_b, habitattypen)
+
+write_csv2(overzicht_belang_all, "../output/overzicht_belang_indicatoren.csv")
 ```
 
 ```{r}
