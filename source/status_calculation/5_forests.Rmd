@@ -426,6 +426,14 @@ mhq_su_remeasured %>%
   collapse_rows(columns = 1)
 ```
 
+```{r}
+mhq_su_remeasured <- mhq_su_remeasured %>%
+  filter(periode != "extra") %>%
+  group_by(main_type, periode) %>%
+  mutate(n_pq_main_type = n_distinct(point_code)) %>%
+  ungroup() %>%
+  filter(n_pq_main_type >= nmin_trend)
+```
 
 #### Aandeel gunstig per periode
 
@@ -455,10 +463,18 @@ trend_flanders <- bind_rows(
 
 #### Verschil aandeel gunstig via mixed model
 
+```{r, eval = FALSE}
+lsvi_habitat_trend_orig <- read_vc(root = output_path,
+           file = str_c("trend_habitat_", habcat_code))
+
+lsvi_habitat_trend <- lsvi_habitat_trend_orig %>%
+  filter(habitattype != "9110")
+```
+
+
 ```{r, warning = FALSE}
 
-lsvi_habitat <- lsvi_habitat_remeasured %>%
-  filter(periode != "extra")
+lsvi_habitat <- lsvi_habitat_remeasured
 
 lsvi_habitat_trend <- calc_trend_habitat(lsvi_habitat)
 
@@ -607,7 +623,6 @@ mcnemar_main_type <- results_mcnemar %>%
 mcnemar_main_type %>%
   kable() %>%
   kable_styling()
-
 
 trend_local %>% 
   filter(type_resultaat == "Habitattype") %>%
@@ -787,6 +802,16 @@ colnames(trend_indicator) <- str_to_lower(colnames(trend_indicator))
 ```
 
 #### Verschil aandeel gunstig via mixed model
+
+```{r, eval = FALSE}
+trend_indicatoren_orig <- read_vc(root = output_path,
+           file = str_c("trend_indicatoren_", habcat_code))
+
+lsvi_indicator_trend <- trend_indicatoren_orig %>%
+  filter(habitattype != "9110")
+```
+
+
 
 ```{r, warning = FALSE}
 

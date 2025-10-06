@@ -643,6 +643,12 @@ ht3260_disappeared %>%
 
 ## Schatting van de trend in aandeel habitat in goede toestand
 
+```{r}
+nmin_trend <- 5
+```
+
+
++ We maken een schatting vanaf `nmin_trend` herhaalde waarnemingen
 + We maken gebruik van mixed model via `INLA` package
 
 ## Habitatkwalitaitsindex
