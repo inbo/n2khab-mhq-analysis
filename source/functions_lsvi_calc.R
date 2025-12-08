@@ -2430,6 +2430,83 @@ calc_trend_habitat <- function(lsvi_habitat, re_location = TRUE, threshold_abs =
   return(results_round)
 }
 
+calc_index_indicator <- function(lsvi_indicator) {
+
+  lsvi_indicator <- lsvi_indicator %>%
+    mutate(is_subtype = str_detect(type, "_"))
+
+  index_ind_main_type <- lsvi_indicator %>%
+    group_by(main_type, criterium, indicator, belang) %>%
+    summarise(index_ind_mean = sum(verschilscore * weight) / sum(weight),
+              v1 = sum(weight),
+              v2 = sum((weight) ^ 2),
+              var_wgt = sum(weight * (verschilscore - index_ind_mean) ^ 2) / (v1 - (v2 / v1)),
+              n = n(),
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type), collapse = "; "),
+                                      NA)) %>%
+    ungroup() %>%
+    mutate(se = sqrt(var_wgt) / sqrt(n),
+           index_ind_llci_0.95 = index_ind_mean - 1.96 * se,
+           index_ind_ulci_0.95 = index_ind_mean + 1.96 * se
+    ) %>%
+    mutate(type_resultaat = "Habitattype",
+           sbzh = "Binnen & Buiten")
+
+  index_ind_sbzh <- lsvi_indicator %>%
+    mutate(sbzh = ifelse(in_sac, "Binnen", "Buiten")) %>%
+    group_by(main_type, sbzh, criterium, indicator, belang) %>%
+    summarise(index_ind_mean = sum(verschilscore * weight) / sum(weight),
+              v1 = sum(weight),
+              v2 = sum((weight) ^ 2),
+              var_wgt = sum(weight * (verschilscore - index_ind_mean) ^ 2) / (v1 - (v2 / v1)),
+              n = n(),
+              habitatsubtype = ifelse(any(is_subtype),
+                                      str_c(unique(type), collapse = "; "),
+                                      NA)) %>%
+    ungroup() %>%
+    mutate(se = sqrt(var_wgt) / sqrt(n),
+           index_ind_llci_0.95 = index_ind_mean - 1.96 * se,
+           index_ind_ulci_0.95 = index_ind_mean + 1.96 * se
+    ) %>%
+    mutate(type_resultaat = "SBZH")
+
+  index_ind <- index_ind_main_type %>%
+    bind_rows(index_ind_sbzh)
+
+  if (any(lsvi_indicator$is_subtype)) {
+
+    lsvi_ind_subtype <- lsvi_indicator %>%
+      filter(is_subtype)
+
+    index_ind_subtype <- lsvi_ind_subtype %>%
+      group_by(main_type, type, criterium, indicator, belang) %>%
+      summarise(index_ind_mean = sum(verschilscore * weight) / sum(weight),
+                v1 = sum(weight),
+                v2 = sum((weight) ^ 2),
+                var_wgt = sum(weight * (verschilscore - index_ind_mean) ^ 2) / (v1 - (v2 / v1)),
+                n = n()) %>%
+      ungroup() %>%
+      mutate(se = sqrt(var_wgt) / sqrt(n),
+             index_ind_llci_0.95 = index_ind_mean - 1.96 * se,
+             index_ind_ulci_0.95 = index_ind_mean + 1.96 * se
+      ) %>%
+      mutate(type_resultaat = "Habitatsubtype",
+             sbzh = "Binnen & Buiten") %>%
+      rename(habitatsubtype = type)
+
+    index_ind <- index_ind %>%
+      bind_rows(index_ind_subtype)
+
+  }
+
+  index_ind <- index_ind %>%
+    mutate(schaal = "Vlaanderen",
+           versie = "Versie 3") %>%
+    select(schaal, versie, type_resultaat, habitattype = main_type, sbzh, habitatsubtype, criterium, indicator, belang, n_obs = n, index_ind_mean, index_ind_llci_0.95, index_ind_ulci_0.95)
+
+  return(index_ind)
+}
 
 calc_index_hq_habitat <- function(lsvi_habitat) {
 
