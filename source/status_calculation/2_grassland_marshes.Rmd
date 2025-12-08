@@ -172,6 +172,10 @@ weights_remeasured  %>%
 ## Status per plot
 
 ```{r}
+output_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/", habcat_name,"/result"))
+```
+
+```{r}
 lsvi_voorwaarde <- lsvi_detail %>%
   inner_join(select(mhq_su, id, type_analysis, type, main_type, in_sac, point_code), by = c("id", "type_analysis")) 
 
@@ -183,12 +187,21 @@ lsvi_habitat <- lsvi_globaal %>%
   inner_join(select(mhq_su, id, type_analysis, type, main_type, in_sac, point_code), by = c("id", "type_analysis"))
 ```
 
+```{r}
+lsvi_habitat_plot <- lsvi_globaal %>%
+  inner_join(select(mhq_su, id, date, type_analysis, type, main_type, in_sac, point_code, x, y), by = c("id", "type_analysis")) %>%
+  mutate(lsvi = ifelse(status, "gunstig", "ongunstig")) %>%
+  select(id, date, point_code, x, y, in_sac, habitattype = main_type, habitatsubtype = type, lsvi, aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, index_mean_ind, doelbereik_mean_ind) 
+
+lsvi_habitat_plot %>%
+  write_vc(root = output_path,
+           file = str_c("lsvi_plot_", habcat_code),
+           digits = 20,
+           sorting = c("habitattype", "habitatsubtype", "date", "point_code"),
+           strict = FALSE)
+```
 
 ## Status Vlaanderen
-
-```{r}
-output_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/", habcat_name,"/result"))
-```
 
 ### Meest recente toestand habitatkwaliteit per meetpunt
 
@@ -278,7 +291,7 @@ status_beheer %>%
 ```
 
 
-#### kwaliteitsindex
+#### Kwaliteitsindex
 
 ```{r}
 
@@ -330,6 +343,8 @@ index_hq %>%
 
 
 ### Meest recente toestand indicator per meetpunt
+
+#### Aandeel gunstig
 
 ```{r, warning = FALSE}
 
@@ -396,7 +411,19 @@ lsvi_indicator_recent %>%
   theme(axis.text.x = element_text(angle = 90, size = 7))
 
 ```
+#### Kwaliteitsindex
 
+```{r}
+
+index_ind <- calc_index_indicator(lsvi_indicator_recent)
+
+index_ind %>%
+  write_vc(root = output_path,
+           file = str_c("index_ind_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "indicator"),
+           digits = 4,
+           strict = FALSE)
+```
 
 ## Trend Vlaanderen
 
@@ -419,6 +446,8 @@ mhq_su_remeasured %>%
   kable_styling() %>%
   collapse_rows(columns = c(1, 2, 3), target = 1)
 ```
+
+
 
 
 #### Aandeel gunstig per periode

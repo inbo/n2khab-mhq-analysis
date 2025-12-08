@@ -185,6 +185,20 @@ lsvi_habitat <- lsvi_globaal %>%
 output_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/", habcat_name,"/result"))
 ```
 
+```{r}
+lsvi_habitat_ws <- lsvi_globaal %>%
+  inner_join(select(mhq_su, id, date, type, main_type, in_sac, code_watersurfaces), by = c("id")) %>%
+  mutate(lsvi = ifelse(status, "gunstig", "ongunstig")) %>%
+  select(id, date, code_watersurfaces, in_sac, habitattype = main_type, habitatsubtype = type, lsvi, aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, index_mean_ind) 
+
+lsvi_habitat_ws %>%
+  write_vc(root = output_path,
+           file = str_c("lsvi_watersurface_", habcat_code),
+           digits = 20,
+           sorting = c("habitattype", "habitatsubtype", "date", "code_watersurfaces"),
+           strict = FALSE)
+```
+
 ### Meest recente toestand habitatkwaliteit per meetpunt
 
 ```{r}
@@ -553,8 +567,9 @@ index_hq %>%
   coord_flip()
 ```
 
-
 ### Meest recente toestand indicator per meetpunt
+
+#### Aandeel gunstig
 
 ```{r, warning = FALSE}
 
@@ -695,6 +710,20 @@ for (habt in unique(status_indicatoren$habitattype)) {
   
 }
 
+```
+#### Kwaliteitsindex
+
+```{r}
+
+index_ind <- calc_index_indicator(lsvi_indicator_recent %>%
+                                    filter(!is.na(verschilscore)))
+
+index_ind %>%
+  write_vc(root = output_path,
+           file = str_c("index_ind_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "indicator"),
+           digits = 4,
+           strict = FALSE)
 ```
 
 ## Trend Vlaanderen

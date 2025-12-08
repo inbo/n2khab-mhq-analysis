@@ -54,7 +54,7 @@ mhq_su <- measurements_streams_mhq %>%
          main_type = type,
          in_sac = ifelse(sbzh %in% c("intersecting or downstream"), TRUE,
                          ifelse(sbzh == "outside", FALSE, NA))) %>%
-  select(id, segment_id, in_sac, main_type, type, date) 
+  select(id, segment_id, in_sac, main_type, type, date, latitude, longitude) 
 
 check <- mhq_su %>%
   group_by(segment_id, date) %>%
@@ -114,7 +114,6 @@ weights_remeasured <- mhq_su_remeasured %>%
 
 mhq_su_remeasured <- mhq_su_remeasured %>%
   left_join(weights_remeasured, by = c("periode", "main_type", "type", "in_sac")) 
-  
 
 ```
 
@@ -162,6 +161,29 @@ lsvi_habitat <- lsvi_globaal %>%
 
 ```{r}
 output_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/", habcat_name,"/result"))
+```
+
+```{r}
+lsvi_habitat_plot <- lsvi_globaal %>%
+  inner_join(select(mhq_su, id, date, type, main_type, in_sac, segment_id, latitude, longitude), by = c("id")) %>%
+  left_join(select(mhq_streams_samplingframe, segment_id, x, y)) %>%
+  mutate(lsvi = ifelse(status, "gunstig", "ongunstig")) %>%
+
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+  st_transform(crs = 31370) %>%
+  mutate(x_measured = st_coordinates(.data$geometry)[,1],
+         y_measured = st_coordinates(.data$geometry)[,2]) %>%
+  st_drop_geometry() %>%
+  mutate(x = ifelse(!is.na(x_measured), x_measured, x),
+         y = ifelse(!is.na(y_measured), y_measured, y)) %>%
+    select(id, date, segment_id, x, y, in_sac, habitattype = main_type, habitatsubtype = type, lsvi, aggregatiemethode, n_zb_ongunstig, aandeel_gunstig, index_mean_ind)
+ 
+lsvi_habitat_plot %>%
+  write_vc(root = output_path,
+           file = str_c("lsvi_plot_", habcat_code),
+           digits = 20,
+           sorting = c("habitattype", "habitatsubtype", "date", "segment_id"),
+           strict = FALSE)
 ```
 
 ### Meest recente toestand habitatkwaliteit per meetpunt
@@ -257,6 +279,8 @@ index_hq %>%
 
 ### Meest recente toestand indicator per meetpunt
 
+#### Aandeel gunstig
+
 ```{r, warning = FALSE}
 
 lsvi_indicator_recent <- lsvi_indicator  %>%
@@ -305,6 +329,20 @@ for (habt in unique(status_indicatoren$habitattype)) {
   
 }
 
+```
+
+#### Kwaliteitsindex
+
+```{r}
+
+index_ind <- calc_index_indicator(lsvi_indicator_recent)
+
+index_ind %>%
+  write_vc(root = output_path,
+           file = str_c("index_ind_", habcat_code),
+           sorting = c("habitattype", "type_resultaat", "sbzh", "habitatsubtype", "indicator"),
+           digits = 4,
+           strict = FALSE)
 ```
 
 ## Trend Vlaanderen
