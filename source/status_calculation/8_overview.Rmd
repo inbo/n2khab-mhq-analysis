@@ -27,12 +27,90 @@ for (i in 1:nrow(habcat)) {
   
 }
 
+status_plot <- NULL
 
+habcat_terr <- habcat %>%
+  filter(! habcat_name %in% c("streams", "standing_water"))
+
+for (i in 1:nrow(habcat_terr)) {
+  
+  input_path <- file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/", habcat$habcat_name[i],"/result"))
+  
+  status_plot_habcat  <- read_vc(root = input_path,
+           file = str_c("lsvi_plot_", habcat$habcat_code[i]))
+  
+  status_plot <- status_plot %>%
+    bind_rows(status_plot_habcat)
+  
+}
+
+status_plot_sf <- status_plot %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370)
+
+status_plot_sf %>%
+  mutate(show_color = ifelse(lsvi == "gunstig", "green", "blue")) %>%
+  st_transform(4326) %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(color = ~show_color)
+
+status_plot_sf %>%
+  st_write("../output/meetnet_habitatkwaliteit_lsvi_meetpunt.gpkg")
 ```
 
 ```{r}
+status_stream  <- read_vc(root = file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/streams/result")),
+           file = "lsvi_plot_rw")
+
+status_stream_sf <- status_stream %>%
+  st_as_sf(coords = c("x", "y"), crs = 31370)
+
+status_stream_sf %>%
+  mutate(show_color = ifelse(lsvi == "gunstig", "green", "blue")) %>%
+  st_transform(4326) %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(color = ~show_color)
+```
+
+```{r}
+status_ws  <- read_vc(root = file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/standing_water/result")),
+           file = "lsvi_watersurface_sw")
+
+status_ws_sf <- watersurfaces_hab$watersurfaces_polygons %>%
+  select(code_watersurfaces = polygon_id) %>%
+  inner_join(status_ws, by = "code_watersurfaces")
+
+status_ws_sf %>%
+  mutate(show_color = ifelse(lsvi == "gunstig", "green", "blue")) %>%
+  st_transform(4326) %>%
+  leaflet() %>%
+  addTiles() %>%
+  addPolygons(color = ~show_color)
+```
+
+```{r}
+status_plot_sf %>%
+  st_write(dsn = "../output/meetnet_habitatkwaliteit_lsvi_meetpunt.gpkg", layer = "terrestrisch", delete_dsn = TRUE)
+
+status_stream_sf %>%
+  st_write(dsn = "../output/meetnet_habitatkwaliteit_lsvi_meetpunt.gpkg", layer = "aquatisch_rivieren")
+
+status_ws_sf %>%
+  st_write(dsn = "../output/meetnet_habitatkwaliteit_lsvi_meetpunt.gpkg", layer = "aquatisch_plassen")
+```
+
+
+
+```{r}
+#2170 volledig in SBZH: schatting VL = schatting in SBZH
+add_2170_sbzh <- status_flanders %>% 
+  filter(habitattype == "2170") %>%
+  mutate(sbzh = "Binnen")
 
 status_flanders <- status_flanders %>%
+  bind_rows(add_2170_sbzh) %>%
+  filter(habitattype != "9110") %>%
   mutate(type_resultaat = factor(type_resultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
   arrange(habitattype, type_resultaat, habitatsubtype) %>%
   filter(!(habitatsubtype == "2190_a" & type_resultaat %in% c("Habitattype", "SBZH")))
@@ -93,11 +171,12 @@ status_flanders %>%
   filter(sbzh != "Buiten") %>%
   mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH", "Vlaanderen"),
          schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH"))) %>%
-  ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling)) +
+  ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling, label = n_obs)) +
   geom_point(size = 5, show.legend = TRUE) +
   geom_errorbar(width = 0.2, show.legend = TRUE) +
   geom_hline(yintercept = 0.75, linetype = 2) +
-  geom_hline(yintercept = 0.9, linetype = 2) +
+ # geom_hline(yintercept = 0.9, linetype = 2) +
+  geom_text(nudge_y = 0.05, nudge_x = 0.4 ,colour = "black", size = 3) +
   facet_wrap(~ schaal) +
   labs(x = "Habitattype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
   scale_color_manual(values = beoordeling_colors, drop = FALSE) +
@@ -108,7 +187,32 @@ status_flanders %>%
 
 ggsave("../output/toestand_habitatkwaliteit_2025-02-05.png")
 ```
+```{r, fig.height=7, fig.width=8}
 
+beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
+
+status_flanders %>%
+  mutate(beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend"))) %>%
+  filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
+  mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH",
+                        ifelse(sbzh == "Buiten", "Buiten SBZH", "Vlaanderen")),
+         schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH", "Buiten SBZH"))) %>%
+  ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling, label = n_obs)) +
+  geom_point(size = 5, show.legend = TRUE) +
+  geom_errorbar(width = 0.2, show.legend = TRUE) +
+  geom_hline(yintercept = 0.75, linetype = 2) +
+ # geom_hline(yintercept = 0.9, linetype = 2) +
+  geom_text(nudge_y = 0.05, nudge_x = 0.4 ,colour = "black", size = 3) +
+  facet_wrap(~ schaal) +
+  labs(x = "Habitattype", y = "Aandeel habitat in goede toestand", colour = "Beoordeling") +
+  scale_color_manual(values = beoordeling_colors, drop = FALSE) +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+  coord_flip() +
+  theme(legend.position = "bottom")
+
+ggsave("../output/toestand_habitatkwaliteit_2024.png")
+```
 
 ```{r}
 trend_flanders %>%
