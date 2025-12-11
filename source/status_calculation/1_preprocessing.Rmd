@@ -1,8 +1,10 @@
-# Preprocessing terrestrische habitats
+# Data
 
 ## Benodigde n2khab data
 
-Via het [n2khab package](https://github.com/inbo/n2khab/tree/v0.11.0) worden verschillende algemene datasets geladen. Hiervoor moet er een folder met de naam `n2khab_data` aanwezig zijn hoger in de maphiërarchie (startend van je working directory). Deze map heeft twee subfolders.
+Via het [n2khab package](https://github.com/inbo/n2khab/tree/v0.11.0) worden verschillende algemene datasets geladen.
+Hiervoor moet er een folder met de naam `n2khab_data` aanwezig zijn hoger in de maphiërarchie (startend van je working directory).
+Deze map heeft twee subfolders:
 
 - `10_raw` met minstens de volgende subfolders en data:
   - `sac` met de [Habitatrichtlijn(deel)gebieden](https://zenodo.org/records/3386815)
@@ -10,20 +12,35 @@ Via het [n2khab package](https://github.com/inbo/n2khab/tree/v0.11.0) worden ver
 - `20_processed` met minstens de volgende subfolders en data:
   - `habitatmap_terr` met [deze data](https://zenodo.org/records/13886579)
   - `watersurfaces_hab` met [deze data](https://zenodo.org/records/14621825)
-  
-  
+
+## Data meetnethabitatkwaliteit
+
+De data van het meetnet habitatkwaliteit staat onder versiebeheer in volgende repo's:
+
+- [n2khab-sample-admin](https://github.com/inbo/n2khab-sample-admin)
+- [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data)
+
+Om de code in dit rapport vlot te laten lopen, plaatsen we alle benodigde databestanden in één datafolder ´raphab25´.
+Zo garanderen we ook dat de juiste versie van de databestanden worden gebruikt.
+De datafolder is terug te vinden in deze [google drive folder](https://drive.google.com/drive/folders/1WUSaPx6sLYWQ4wg-kDvl9oku17CeCuAC).
+Om de code te laten lopen kopieer je de data in de `data` folder van je lokale `n2khab-mhq-analysis` R project.
+
+Verder in dit rapport zullen we voor elk databestand verwijzen naar de repository waar de data onder versiebeheer staat en naar de commit die overeenkomt met de correcte versie.
+
+# Preprocessing terrestrische habitats
+
 ## Overzicht metingen meetnet habitatkwaliteit (MHQ)
 
-Een overzicht van de metingen is terug te vinden in de repo [n2khab-sample-admin](https://github.com/inbo/n2khab-sample-admin):
+Een overzicht van de metingen is terug te vinden in de `data/mhq_terr/rapportage2025` folder van de repo [n2khab-sample-admin (commit 8157cba)](https://github.com/inbo/n2khab-sample-admin/tree/8157cba766db8353aaa9346a21acc0029a3cf5e1):
 
-+ de tabel 'mhq_terr_measurements' bevat een overzicht van de metingen van van MHQ
++ het git2rdata bestand 'mhq_terr_measurements' bevat een overzicht van de metingen van van MHQ
 
-+ de tabel 'mhq_terr_refpoints' bevat de coördinaten voor elk meetpunt (point_code)
++ het git2rdata bestand 'mhq_terr_refpoints' bevat de coördinaten voor elk meetpunt (point_code)
 
 ```{r}
-path_lsvi <- file.path(fileman_up("n2khab-mhq-data"), "processed")
+path_lsvi <- "../../data/raphab25/n2khab-mhq-data/processed"
 
-path_admin <- file.path(fileman_up("n2khab-sample-admin"), "data")
+path_admin <- "../../data/raphab25/n2khab-sample-admin"
 
 mhq_measurements <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
                              file = "mhq_terr_measurements")
@@ -44,8 +61,6 @@ mhq_assessments <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025
 mhq_refpoints <- read_vc(root = file.path(path_admin, "mhq_terr/rapportage2025"),
                              file = "mhq_terr_refpoints")
 
-mhq_popunits <- read_vc(root = file.path(path_admin, "mhq_terr"),
-                             file = "mhq_terr_popunits")
 ```
 
 ## Ligging van meetpunten: binnen of buiten SBZH
@@ -57,10 +72,9 @@ We maken hiervoor gebruik van de coördinaten in 'mhq_terr_refpoints'.
 
 Binnen MHQ maken we ook gebruik van meetpunten van de Vlaamse bosinventarisatie (VBI) en Scheldemonitoring (MONEOS).
 
-De coördinaten van MONEOS zijn terug te vinden in de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data).
+De coördinaten van MONEOS zijn terug te vinden in de repo [n2khab-mhq-data (commit 0866f34)](https://github.com/inbo/n2khab-mhq-data/tree/0866f34a8710c252ac405fb86a9c1f280bc5a7ab).
 
-De coördinaten van VBI zijn niet publiek beschikbaar en deze [google drive folder](https://drive.google.com/drive/folders/1QqtZZ8e0FiKG0_IC9XZVIcZPN9UiVF1e).
-Kopieer het git2rdata bestand in de subfolder 'processed/dwh_vbi' in de folder 'n2khab-mhq-data'. 
+De coördinaten van VBI zijn niet publiek beschikbaar, maar wel terug te vinden in deze [google drive folder](https://drive.google.com/drive/folders/1QqtZZ8e0FiKG0_IC9XZVIcZPN9UiVF1e) met beperkte toegang.
 
 ```{r}
 sac <- read_admin_areas(dsn = "sac") %>%
@@ -74,8 +88,7 @@ strata <- mhq_refpoints %>%
   st_drop_geometry()
   
 # moneos pq's
-
-path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_terr")
+path_mhq_terr <- "../../data/raphab25/n2khab-mhq-data/processed/inboveg_mhq_terr"
 coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_mhq_terr)
 coordinates_1330_da <- read_vc(file = "coordinates_moneos_1330_da", root = path_mhq_terr)
 
@@ -94,7 +107,7 @@ strata_1330_da <- coordinates_1330_da %>%
   st_drop_geometry()
 
 # vbi
-path_vbi <- file.path(fileman_up("n2khab-mhq-data"), "processed/dwh_vbi")
+path_vbi <- "../../data/raphab25/n2khab-mhq-data/processed/dwh_vbi"
 coordinates_vbi <- read_vc(file = "coordinates", root = path_vbi) 
 
 paired_2_3 <- coordinates_vbi %>%
@@ -127,9 +140,10 @@ check_in_sac <- strata_vbi %>%
 ```
 
 ```{r}
+# extra analyse
 #ligging binnen en buiten 'gebieden met goed beheer'
 
-path_beheer <- file.path(fileman_up("n2khab-mhq-data"), "raw/passend_beheer")
+path_beheer <- "../../data/raphab25/n2khab-mhq-data/raw/passend_beheer"
 
 map_beheer <- st_read(file.path(path_beheer, "passend_beheer.gpkg")) %>%
   mutate(nsb_1_6 = paste0(nsb1, ";", nsb2, ";", nsb3, ";", nsb4, ";", nsb5, ";", nsb6)) %>%
@@ -141,12 +155,6 @@ stratum_passend_beheer <- mhq_refpoints %>%
   mutate(passend_beheer = !is.na(nsb_1_6)) %>%
   st_drop_geometry() %>%
   distinct(point_code, passend_beheer)
-  
-# moneos pq's
-
-path_mhq_terr <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_terr")
-coordinates_91E0_sf <- read_vc(file = "coordinates_moneos_91E0_sf", root = path_mhq_terr)
-coordinates_1330_da <- read_vc(file = "coordinates_moneos_1330_da", root = path_mhq_terr)
 
 stratum_passend_beheer_91E0_sf <- coordinates_91E0_sf %>%
   st_as_sf(coords = c("x", "y"), crs = 31370) %>%
@@ -165,8 +173,6 @@ stratum_passend_beheer_1330_da <- coordinates_1330_da %>%
   unique()
 
 # vbi
-path_vbi <- file.path(fileman_up("n2khab-mhq-data"), "processed/dwh_vbi")
-coordinates_vbi <- read_vc(file = "coordinates", root = path_vbi) 
 
 stratum_passend_beheer_vbi <- coordinates_vbi %>%
   filter(vbi_cycle > 1) %>%
@@ -278,8 +284,8 @@ main_type_disappeared_summary <- main_type_disappeared %>%
   mutate(sbzh = ifelse(in_sac, "Binnen", "Buiten")) %>%
   select(habitattype = main_type, habitatsubtype = type, sbzh, n_pq_habitat_verdwenen = n_pq_habt_disappeared)
 
-main_type_disappeared_summary %>%
-  write_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/habt_verdwenen.csv"))
+# main_type_disappeared_summary %>%
+#   write_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/lsvi_mhq/habt_verdwenen.csv"))
 ```
 
 ```{r}
@@ -292,20 +298,19 @@ main_type_disappeared_summary %>%
 
 ## Overzicht metingen meetnet habitatkwaliteit (MHQ)
 
-In de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data) vinden we:
+In de repo [n2khab-mhq-data (commit 0866f34)](https://github.com/inbo/n2khab-mhq-data/tree/0866f34a8710c252ac405fb86a9c1f280bc5a7ab) vinden we:
 
-+ de tabel 'HT31xx_header' met een overzicht van alle plassen waar een LSVI-opname werd uitgevoerd (zie repo )
++ de tabel 'HT31xx_header' met een overzicht van alle plassen waar een LSVI-opname werd uitgevoerd
 
 + de tabel 'mapping_table_inbocode' met een vertaling van de oude watervlakkencodes naar de nieuwe watervlakkencodes (die gebruikt worden in de watervlakkenlaag)
 
 + de tabel 'voortgang_mhq_aq_stilstaand_cycle2.csv' met de geobserveerde habitattypen tijdens de 2de meetcyclus
 
-
 ```{r}
 
-path_lsvi_aq <- file.path(fileman_up("n2khab-mhq-data"), "processed/inboveg_mhq_aq")
+path_lsvi_aq <- "../../data/raphab25/n2khab-mhq-data/processed/inboveg_mhq_aq"
 
-path_admin_mhq <- file.path(fileman_up("n2khab-sample-admin"), "data/mhq_watersurfaces/rapportage2025")
+path_admin_mhq <- "../../data/raphab25/n2khab-sample-admin/mhq_watersurfaces/rapportage2025"
 
 measurements_ws <- read_vc(file = "HT31xx_header", root = path_lsvi_aq)
 
@@ -353,12 +358,17 @@ We selecteren de waterlichamen die werden opgemeten in de eerste meetcyclus en d
 
 ```{r }
 
-sample_cycle2 <- st_read(file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/mhq_standingwater_cycle2_2024-04-17.gpkg")) %>%
+path_design_ws <- "../../data/raphab25/n2khab-mhq-data/processed/design_watersurfaces"
+
+sample_cycle2 <- st_read(file.path(path_design_ws,
+                           "mhq_standingwater_cycle2_2024-04-17.gpkg")) %>%
   st_drop_geometry()
 
-voortgang_cycle2 <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/voortgang_mhq_aq_stilstaand_cycle2.csv"))
+voortgang_cycle2 <- read_csv2(file.path(path_design_ws,
+                              "voortgang_mhq_aq_stilstaand_cycle2.csv"))
 
-measurements_cycle1 <- read_vc(file = "mhq_watersurfaces_measurements_cycle1", root = file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/")) %>%
+measurements_cycle1 <- read_vc(file = "mhq_watersurfaces_measurements_cycle1", 
+                               root = path_design_ws) %>%
   filter(measurement_type == "biotic")
 
 measurements_ws_all <- measurements_ws_all %>%
@@ -381,7 +391,11 @@ measurements_ws_all %>%
 
 ## Strata
 
-We maken gebruik van [watersurfaces_hab_v6](https://zenodo.org/records/14621825): Map of standing water habitat types and regionally important biotopes in Flanders.
+We maken gebruik van:
+
+-   [watersurfaces_hab_v6](https://zenodo.org/records/14621825): Map of standing water habitat types and regionally important biotopes in Flanders.
+
+-   [watersurfaces_2024](https://zenodo.org/records/14203168): Map of water surfaces of the Flemish Region.
 
 We controleren eerst de versie:
 
@@ -415,6 +429,37 @@ if (!all.equal(hashes$md5_lokaal, hashes$md5_zenodo)) {
 }
 ```
 
+```{r}
+
+path <- fileman_up("n2khab_data")
+file <- "10_raw/watersurfaces"
+
+mypath <- file.path(path, file)
+
+hashes <-
+    tibble(filepath = str_c(mypath, "/",
+        list.files(path = mypath,
+            recursive = TRUE)
+      )) %>%
+    mutate(filename = str_match(filepath, "(.+\\/)*(.+)")[,3],
+           md5_lokaal = map(filepath, function(x) {
+                           file(x) %>% md5 %>% str_c(collapse = '')
+                         }) %>% as.character,
+           md5_zenodo = c("d862df5b5e9ee8a2de4c333a7dcd7645"),
+           match = md5_lokaal == md5_zenodo) %>%
+    select(filename,
+           md5_lokaal,
+           md5_zenodo,
+           match)
+
+hashes
+
+if (!all.equal(hashes$md5_lokaal, hashes$md5_zenodo)) {
+    stop(cat("The standardized version is NOT up to date ! Please check  the datasource. "))
+}
+```
+
+
 De strata worden gevormd door elke combinatie van:
 
 + ligging binnen of buiten SBZH
@@ -423,10 +468,9 @@ De strata worden gevormd door elke combinatie van:
 
 Voor elk opgemeten watervlak bepalen we tot welk stratum het behoort.
 
-Vervolgens bepalen we de totale oppervlakte van elk stratum op basis van 'watersurfaces_hab_v6' en de geobserveerder habitattypen tijdens de tweede meetcyclus/.
+Vervolgens bepalen we de totale oppervlakte van elk stratum op basis van 'watersurfaces_hab_v6' en de geobserveerde habitattypen tijdens de tweede meetcyclus.
 
 Voor deze bewerkingen moet er een map met de naam `output` aanwezig zijn in de `n2khab-mhq-analysis` folder.
-
 
 ```{r}
 
@@ -435,8 +479,6 @@ type_absent <- voortgang_cycle2 %>%
     mutate(main_type_target = str_sub(type_target, 1, 4),
            main_type_is_present = str_detect(type_observed, main_type_target)) 
 ```
-
-
 
 ```{r}
 
@@ -555,16 +597,16 @@ ws_main_type_disappeared %>%
 
 ## Overzicht metingen meetnet habitatkwaliteit (MHQ)
 
-In de repo [n2khab-mhq-data](https://github.com/inbo/n2khab-mhq-data) vinden we:
+In de repo [n2khab-mhq-data (commit 0866f34)](https://github.com/inbo/n2khab-mhq-data/tree/0866f34a8710c252ac405fb86a9c1f280bc5a7ab) vinden we:
 
-+ de tabel 'HT3260_header' met een overzicht van alle opnames waar een LSVI-opname werd uitgevoerd (zie repo )
++ de tabel 'HT3260_header' met een overzicht van alle opnames waar een LSVI-opname werd uitgevoerd
 
 + de tabel 'code_locaties_3260' geeft de link tussen de locatiecode (zoals gebruikt in INBOVEG) en het id van riviersegment (zoals gebruikt in de steekproeftrekking)
 
 ```{r}
 measurements_streams <- read_vc(file = "HT3260_header", root = path_lsvi_aq)
 
-path_admin_mhq <- file.path(fileman_up("n2khab-sample-admin"), "data/mhq_streams/rapportage2025")
+path_admin_mhq <- "../../data/raphab25/n2khab-sample-admin/mhq_streams/rapportage2025"
 
 mhq_streams_samplingframe <- read_vc(file = "samplingframe_habitatstreams_v1_7", path_admin_mhq)
 
@@ -572,7 +614,7 @@ mhq_streams_refpoints <- read_vc(file = "mhq_streams_refpoints", root =  path_ad
 
 mhq_streams_refpoints_val <- read_vc(file = "mhq_streams_refpoints_validity", root =  path_admin_mhq)
 
-watersurfaces_code_orig <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/3260_steekproefkader/code_locaties_3260.csv"))
+watersurfaces_code_orig <- read_csv2("../../data/raphab25/n2khab-mhq-data/processed/3260_steekproefkader/code_locaties_3260.csv")
 
 watersurfaces_code <- watersurfaces_code_orig %>%
   select(location = Veldcode, segment_id = sampling_unit_code, sbzh = SBZ, source_c2 = `bron+datum_cyclus2`, source_c1 = `bron+datum_cyclus1`)
@@ -600,7 +642,7 @@ Dit wordt weergegeven in de shapefile shapefile 'steekproefkader_3260_v1_7_strat
 We berekenen de totale lengte in elk stratum.
 
 ```{r}
-sampleframe_3260_orig <- st_read(file.path(fileman_up("n2khab-mhq-data"), "processed/3260_steekproefkader/steekproefkader_3260_v1_7_strata.shp"))
+sampleframe_3260_orig <- st_read("../../data/raphab25/n2khab-mhq-data/processed/3260_steekproefkader/steekproefkader_3260_v1_7_strata.shp")
 
 sampleframe_3260 <- sampleframe_3260_orig %>%
   mutate(length_m = drop_units(st_length(geometry))) %>%
@@ -617,7 +659,7 @@ length_3260 <- sampleframe_3260 %>%
 ## Meetpunten waar 3260 verdwenen is
 
 ```{r}
-voortgang_cycle2 <- read_csv2(file.path(fileman_up("n2khab-mhq-data"), "processed/design_watersurfaces/voortgang_mhq_aq_stromend_cycle2.csv"))
+voortgang_cycle2 <- read_csv2("../../data/raphab25/n2khab-mhq-data/processed/design_watersurfaces/voortgang_mhq_aq_stromend_cycle2.csv")
 
 ht3260_disappeared <- voortgang_cycle2 %>%
   filter(type == "gh") %>%
@@ -627,7 +669,6 @@ ht3260_disappeared %>%
   select(segment_id, sac_streams, type_observed = type) %>%
   datatable(rownames = FALSE)
 ```
-
 
 # Methode
 
@@ -664,5 +705,3 @@ De habitatkwaliteitsindex heeft een waarde tussen -1 en +1, waarbij 0 overeenkom
     + waarde <  referentiewaarde: (referentiewaarde - waarde) / (referentiewaarde - minimum waarde) 
     
 + per vegetatievlek: gemiddelde habitatkwaliteitsindex van alle indicatoren
-
-

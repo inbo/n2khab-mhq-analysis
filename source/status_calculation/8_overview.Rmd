@@ -44,6 +44,9 @@ for (i in 1:nrow(habcat_terr)) {
   
 }
 
+```
+
+```{r, eval = FALSE}
 status_plot_sf <- status_plot %>%
   st_as_sf(coords = c("x", "y"), crs = 31370)
 
@@ -53,12 +56,10 @@ status_plot_sf %>%
   leaflet() %>%
   addTiles() %>%
   addCircleMarkers(color = ~show_color)
-
-status_plot_sf %>%
-  st_write("../output/meetnet_habitatkwaliteit_lsvi_meetpunt.gpkg")
 ```
 
-```{r}
+
+```{r, eval = FALSE}
 status_stream  <- read_vc(root = file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/streams/result")),
            file = "lsvi_plot_rw")
 
@@ -73,7 +74,7 @@ status_stream_sf %>%
   addCircleMarkers(color = ~show_color)
 ```
 
-```{r}
+```{r, eval = FALSE}
 status_ws  <- read_vc(root = file.path(fileman_up("n2khab-mhq-data"), str_c("processed/lsvi_mhq/standing_water/result")),
            file = "lsvi_watersurface_sw")
 
@@ -89,7 +90,7 @@ status_ws_sf %>%
   addPolygons(color = ~show_color)
 ```
 
-```{r}
+```{r, eval = FALSE}
 status_plot_sf %>%
   st_write(dsn = "../output/meetnet_habitatkwaliteit_lsvi_meetpunt.gpkg", layer = "terrestrisch", delete_dsn = TRUE)
 
@@ -99,8 +100,6 @@ status_stream_sf %>%
 status_ws_sf %>%
   st_write(dsn = "../output/meetnet_habitatkwaliteit_lsvi_meetpunt.gpkg", layer = "aquatisch_plassen")
 ```
-
-
 
 ```{r}
 #2170 volledig in SBZH: schatting VL = schatting in SBZH
@@ -115,18 +114,18 @@ status_flanders <- status_flanders %>%
   arrange(habitattype, type_resultaat, habitatsubtype) %>%
   filter(!(habitatsubtype == "2190_a" & type_resultaat %in% c("Habitattype", "SBZH")))
 
-write_csv2(status_flanders, "../output/status_habitatkwaliteit.csv")
+# write_csv2(status_flanders, "../output/status_habitatkwaliteit.csv")
 
 trend_flanders <- trend_flanders %>%
   mutate(type_resultaat = factor(type_resultaat, levels = c("Habitattype", "SBZH", "Habitatsubtype"))) %>%
   arrange(habitattype, type_resultaat, habitatsubtype)
 
-trend_flanders %>%
-  filter(parameter == "verschil_aandeel_gunstig_abs") %>%
-write_csv2("../output/trend_habitatkwaliteit.csv")
+# trend_flanders %>%
+#   filter(parameter == "verschil_aandeel_gunstig_abs") %>%
+# write_csv2("../output/trend_habitatkwaliteit.csv")
 ```
 
-```{r}
+```{r, eval = FALSE}
 
 habcat <- data.frame(habcat_code = c("gr_bm", "cd", "hs_id", "fs", "sw"),
                      habcat_name = c("grassland_marsh", "coastal_dunes", "heath_inland_dunes", "forests", "standing_water"))
@@ -150,15 +149,6 @@ status_beheer <- status_beheer %>%
   arrange(habitattype, passend_beheer)
 
 write_csv2(status_beheer, "../output/status_habitat_beheer.csv", na = "")
-```
-
-
-```{r}
-status_flanders %>%
-  arrange(habitattype) %>%
-  datatable(rownames = FALSE,
-            filter = "top",
-            caption = "Aandeel habitat met gunstige toestand (\\%)")
 ```
 
 ```{r, fig.height=7, fig.width=8}
@@ -185,9 +175,9 @@ status_flanders %>%
   coord_flip() +
   theme(legend.position = "bottom")
 
-ggsave("../output/toestand_habitatkwaliteit_2025-02-05.png")
+# ggsave("../output/toestand_habitatkwaliteit_2025-02-05.png")
 ```
-```{r, fig.height=7, fig.width=8}
+```{r, fig.height=7, fig.width=8, eval = FALSE}
 
 beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
 
@@ -214,14 +204,6 @@ status_flanders %>%
 ggsave("../output/toestand_habitatkwaliteit_2024.png")
 ```
 
-```{r}
-trend_flanders %>%
-  arrange(habitattype) %>%
-  select(-parameter) %>%
-  datatable(rownames = FALSE,
-            filter = "top",
-            caption = "Absoluut verschil in aandeel habitat in goede toestand")
-```
 ```{r, fig.height=7, fig.width=8}
 
 klasse_color <- c(rev(traffic_palette(7)), "grey65", "grey35", "grey50") %>%

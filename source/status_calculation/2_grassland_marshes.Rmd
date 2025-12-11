@@ -8,7 +8,6 @@ habcat_name <- "grassland_marsh"
 habcat_code <- "gr_bm"
 ```
 
-
 ```{r}
 lsvi_detail <- read_vc(root = file.path(path_lsvi, str_c("lsvi_mhq/", habcat_name, "/result")),
                              file = str_c("lsvi_detail_", habcat_code))
@@ -48,7 +47,6 @@ lsvi_indicator <- lsvi_indicator %>%
 lsvi_globaal <- lsvi_globaal %>%
   bind_rows(lsvi_globaal_moneos)
 ```
-
 
 ```{r}
 
@@ -158,7 +156,6 @@ weights_recent_table  %>%
             caption = "Gewichten toestand habitatkwaliteit")
 ```
 
-
 ### Trend
 
 ```{r}
@@ -167,7 +164,6 @@ weights_remeasured  %>%
             filter = "top",
             caption = "Gewichten trend habitatkwaliteit")
 ```
-
 
 ## Status per plot
 
@@ -276,7 +272,7 @@ status_flanders %>%
   theme(legend.position = "bottom")
 ```
 
-```{r}
+```{r, eval = FALSE}
 lsvi_habitat_beheer <- lsvi_habitat %>%
   inner_join(select(mhq_su_recent, id, passend_beheer, weight, date), by = "id")
 
@@ -289,7 +285,6 @@ status_beheer %>%
            strict = FALSE)
 
 ```
-
 
 #### Kwaliteitsindex
 
@@ -447,9 +442,6 @@ mhq_su_remeasured %>%
   collapse_rows(columns = c(1, 2, 3), target = 1)
 ```
 
-
-
-
 #### Aandeel gunstig per periode
 
 ```{r}
@@ -487,11 +479,11 @@ lsvi_habitat_trend <- calc_trend_habitat(lsvi_habitat)
 
 lsvi_habitat_trend_glm <- calc_trend_habitat(lsvi_habitat, re_location = FALSE)
 
-lsvi_habitat_trend %>%
-  write_vc(root = output_path,
-           file = str_c("trend_habitat_", habcat_code),
-           sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype", "parameter"),
-           strict = FALSE)
+# lsvi_habitat_trend %>%
+#   write_vc(root = output_path,
+#            file = str_c("trend_habitat_", habcat_code),
+#            sorting = c("periode", "habitattype", "type_resultaat", "sbzh", "habitatsubtype", "parameter"),
+#            strict = FALSE)
 ```
 
 ```{r, eval = FALSE}
@@ -641,7 +633,6 @@ mcnemar_main_type %>%
   kable() %>%
   kable_styling()
 
-
 trend_local %>% 
   filter(type_resultaat == "Habitattype") %>%
   left_join(mcnemar_main_type, by = "habitattype") %>%
@@ -730,7 +721,6 @@ diff_index_hq %>%
 
 ```
 
-
 ```{r}
 
 diff_index_hq %>%
@@ -754,9 +744,6 @@ diff_index_hq %>%
   coord_flip() +
   theme(legend.position = "bottom")
 ```
-
-
-
 
 ```{r}
 diff_index_hq %>%

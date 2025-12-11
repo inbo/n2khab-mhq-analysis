@@ -1,10 +1,11 @@
 ---
-title: "Status calculation"
+title: "Analyse van de gegevens van het meetnet habitatkwaliteit"
 author: 
   -
-    name: "Toon Westra"
+    name: "Toon Westra, Raïsa Carmen, Jeroen Vanden Borre"
     email: "Toon.Westra@inbo.be"
   -
+date: "11-12-2025"
 link-citations: TRUE
 site: bookdown::bookdown_site
 output:
