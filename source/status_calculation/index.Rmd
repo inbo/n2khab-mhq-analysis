@@ -11,6 +11,7 @@ site: bookdown::bookdown_site
 output:
   bookdown::html_document2:
     keep_md: TRUE
+    code_folding: hide
     toc: TRUE
     toc_depth: 3
     toc_float:
@@ -22,10 +23,10 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
 
 library(tidyverse)
 library(INBOtheme)
@@ -51,3 +52,10 @@ options(dplyr.summarise.inform = FALSE)
 source("../functions_lsvi_calc.R")
 ```
 
+# Inleiding
+
+In 2025 rapporteert het INBO over de Staat Van Instandhouding (SVI) van de Natura 2000 habitattypen in kader van de Habitatrichtlijn.
+Voor de beoordeling van de structuur en functies (een van de criteria van de SVI) maken we (deels) gebruik van de gegevens van het meenet biotische habitatkwaliteit.
+Dit technisch rapport documenteer de data en de R-code die gebruikt werden voor de analyse van de habitatkwaliteit
+
+De R-code staat onder versiebeheer in het R-project `status_calculation` in de repo [n2khab-mhq-analysis](https://github.com/inbo/n2khab-mhq-analysis).

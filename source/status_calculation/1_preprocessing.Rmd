@@ -145,7 +145,7 @@ check_in_sac <- strata_vbi %>%
 
 path_beheer <- "../../data/raphab25/n2khab-mhq-data/raw/passend_beheer"
 
-map_beheer <- st_read(file.path(path_beheer, "passend_beheer.gpkg")) %>%
+map_beheer <- st_read(file.path(path_beheer, "passend_beheer.gpkg"), quiet = TRUE) %>%
   mutate(nsb_1_6 = paste0(nsb1, ";", nsb2, ";", nsb3, ";", nsb4, ";", nsb5, ";", nsb6)) %>%
   select(nsb_1_6) 
 
@@ -361,7 +361,7 @@ We selecteren de waterlichamen die werden opgemeten in de eerste meetcyclus en d
 path_design_ws <- "../../data/raphab25/n2khab-mhq-data/processed/design_watersurfaces"
 
 sample_cycle2 <- st_read(file.path(path_design_ws,
-                           "mhq_standingwater_cycle2_2024-04-17.gpkg")) %>%
+                           "mhq_standingwater_cycle2_2024-04-17.gpkg"), quiet = TRUE) %>%
   st_drop_geometry()
 
 voortgang_cycle2 <- read_csv2(file.path(path_design_ws,
@@ -642,7 +642,7 @@ Dit wordt weergegeven in de shapefile shapefile 'steekproefkader_3260_v1_7_strat
 We berekenen de totale lengte in elk stratum.
 
 ```{r}
-sampleframe_3260_orig <- st_read("../../data/raphab25/n2khab-mhq-data/processed/3260_steekproefkader/steekproefkader_3260_v1_7_strata.shp")
+sampleframe_3260_orig <- st_read("../../data/raphab25/n2khab-mhq-data/processed/3260_steekproefkader/steekproefkader_3260_v1_7_strata.shp", quiet = TRUE)
 
 sampleframe_3260 <- sampleframe_3260_orig %>%
   mutate(length_m = drop_units(st_length(geometry))) %>%
@@ -689,7 +689,7 @@ nmin_trend <- 5
 ```
 
 
-+ We maken een schatting vanaf `nmin_trend` herhaalde waarnemingen
++ We maken een schatting vanaf `r nmin_trend` herhaalde waarnemingen
 + We maken gebruik van mixed model via `INLA` package
 
 ## Habitatkwalitaitsindex
