@@ -182,15 +182,20 @@ status_flanders %>%
 beoordeling_colors <- c("Goed" = inbo_lichtgroen, "Niet goed" = inbo_rood, "Onbekend" = inbo_grijs)
 
 status_flanders %>%
-  mutate(beoordeling = factor(beoordeling, levels = c("Goed", "Niet goed", "Onbekend"))) %>%
+  filter(n_obs >= 5) %>%
+  mutate(beoordeling_nrl = ifelse(is.na(aandeel_gunstig_llci),
+                                  ifelse(aandeel_gunstig >= 90, "Goed", "Niet goed"),
+                                  ifelse(aandeel_gunstig_llci >= 90, "Goed",
+                                         ifelse(aandeel_gunstig_ulci >= 90, "Onbekend", "Niet goed"))),
+         beoordeling_nrl = factor(beoordeling_nrl, levels = c("Goed", "Niet goed", "Onbekend"))) %>%
   filter(type_resultaat %in% c("Habitattype", "SBZH")) %>%
   mutate(schaal = ifelse(sbzh == "Binnen", "Binnen SBZH",
                         ifelse(sbzh == "Buiten", "Buiten SBZH", "Vlaanderen")),
          schaal = factor(schaal, levels = c("Vlaanderen", "Binnen SBZH", "Buiten SBZH"))) %>%
-  ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling, label = n_obs)) +
+  ggplot(aes(x = habitattype, y = aandeel_gunstig/100, ymin = aandeel_gunstig_llci/100, ymax = aandeel_gunstig_ulci/100, colour = beoordeling_nrl, label = n_obs)) +
   geom_point(size = 5, show.legend = TRUE) +
   geom_errorbar(width = 0.2, show.legend = TRUE) +
-  geom_hline(yintercept = 0.75, linetype = 2) +
+  geom_hline(yintercept = 0.9, linetype = 2) +
  # geom_hline(yintercept = 0.9, linetype = 2) +
   geom_text(nudge_y = 0.05, nudge_x = 0.4 ,colour = "black", size = 3) +
   facet_wrap(~ schaal) +
@@ -201,7 +206,7 @@ status_flanders %>%
   coord_flip() +
   theme(legend.position = "bottom")
 
-ggsave("../output/toestand_habitatkwaliteit_2024.png")
+ggsave("../output/toestand_habitatkwaliteit_nrl_2024.png")
 ```
 
 ```{r, fig.height=7, fig.width=8}
