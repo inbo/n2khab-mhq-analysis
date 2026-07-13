@@ -4,7 +4,7 @@ Bij de berekening van de MSA houden we rekening met fragmenterende infrastructuu
 
 + spoorlijnen
 + tweevakswegen
-+ kanalen en breede rivieren
++ kanalen en brede rivieren
 
 ## Data en werkwijze
 

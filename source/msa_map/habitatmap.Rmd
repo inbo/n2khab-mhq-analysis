@@ -2,18 +2,19 @@
 
 ## Habitatkaart
 
-We maken gebruik van [habitatmap_terr_ versie _2023_v1](https://zenodo.org/records/13886579): the interpreted, terrestrial part of habitatmap_stdized.
+We maken gebruik van [habitatmap_terr_2023_v1](https://zenodo.org/records/13886579): the interpreted, terrestrial part of habitatmap_stdized.
 
 We controleren eerst de versie op basis van de m5 hash.
 
 ```{r}
 
 path <- fileman_up("n2khab_data")
-file <- "20_processed/habitatmap_terr"
+file <- "20_processed/_versions/habitatmap_terr/habitatmap_terr_2023_v1/"
 
 mypath <- file.path(path, file)
 
-habmap_terr <- read_habitatmap_terr()
+habmap_terr <- read_habitatmap_terr(file = file.path(mypath, "habitatmap_terr.gpkg"),
+                                    version = "habitatmap_terr_2023_v1")
 
 hashes <-
     tibble(filepath = str_c(mypath, "/",
@@ -33,7 +34,7 @@ hashes <-
 
 hashes
 
-if (!all.equal(hashes$md5, hashes$md5_ref)) {
+if (hashes$md5 != hashes$md5_ref) {
     stop(cat("The standardized version is NOT up to date ! Please check  the datasource. "))
 }
 ```
@@ -45,14 +46,15 @@ De habitattypes die van belang zijn voor de berekening van MSA zijn 2160, 2180 e
 ### Werkwijze
 
 + Selectie van polygonen uit habitatkaart die volledig of deels 2160, 2180 of 91xx bevatten
-  + exclusief onzekere habitat (bv. '9120,gh'), maar wel bij twijfel tussen twee habitattypen (bv. '91E0, 9190')
+  + polygonen met enkel onzeker boshabitat (bv. '9120,gh') worden niet meegenomen
+  + polygonen met zeker boshabitat, maar waarbij nog twijfel is tussen twee habitattypen (bv. '91E0,9160') worden wel meegenomen
 + Ruimtelijke objecten van het type MULTIPOLYGON (meerdere polygonen die niet steeds aangrenzend zijn), die zetten we om naar type POLYGON zodat we één polygoon hebben per ruimtelijk object. 
-+ Bereken oppervakte per polygoon
++ Bereken oppervlakte per polygoon
 + Neem een buffer van 7,5 meter rond de polygonen (polygonen die gescheiden zijn door bv. een smal pad willen we in één cluster samenvoegen) 
-+ Voeg aangrijnzende of overlappende polygonen (inclusief buffer) samen om clusters te vormen
++ Voeg aangrenzende of overlappende polygonen (inclusief buffer) samen om clusters te vormen
   + Voor 2180 selecteren we hiervoor de polygonen met 2160, 2180 en 91E0
   + voor 91xx selecteren we de polygonen met 91xx
-+ Knip barrieres uit clusters
++ Knip barrières uit clusters
 + Als er MULTIPOLYGON objecten worden gevormd zetten we die om naar POLYGON objecten
 + Bepaal per polygoon tot welke cluster die behoort, indien een polygoon tot meerdere clusters behoort dan kennen we de polygoon toe aan de clusters met de grootste overlap (via 'st_join(largest = TRUE)')
 + clusters die niet overlappen met een polygoon (via 'st_join(largest = TRUE)') worden verwijderd; het gaat in de regel om artefacten als gevolg van de buffering
@@ -218,18 +220,19 @@ check_area_clusters <- polygonen_msa_table %>%
             n_polygons = n_distinct(polygon_id)) %>%
   ungroup() %>%
   mutate(area_cluster_class = ifelse(area_m2_cluster < 1000, "0 - 0.1 ha",
-                                    ifelse(area_m2_cluster < 10000, "0.1 - 1 ha", "> 1 ha")))
+                                    ifelse(area_m2_cluster < 10000, "0.1 - 1 ha", "> 1 ha")),
+         area_cluster_class = factor(area_cluster_class, levels = c("0 - 0.1 ha", "0.1 - 1 ha",  "> 1 ha")))
 ```
 
 ### Check resultaat voor één polygoon 
 
 In onderstaande figuur zien we:
 
-+ een gele polygoon die grotendeels door een barriere (rode polygoon) wordt gescheiden van een naburige polygonen
++ een gele polygoon die grotendeels door een barrière (rode polygoon) wordt gescheiden van een naburige polygonen
 + de polygonen in een straal van 350 meter (grijze polygonen)
 + de clusters die gevormd worden (blauwe polygonen)
 
-De gele polygoon behoort to de zelfde cluster als de naburige polygoon omdat ze verbinding maakt (na buffer van 7.5 m rond de polygonen) via een klein stukje eenvaksbaan (dat niet als barrière wordt beschouwd). 
+De gele polygoon behoort tot dezelfde cluster als de naburige polygoon omdat ze verbinding maakt (na buffer van 7.5 m rond de polygonen) via een klein stukje eenvaksbaan (dat niet als barrière wordt beschouwd).
 
 ```{r}
 polygon_sel <- c("603512_v2014")
@@ -304,7 +307,7 @@ polygon_select %>%
 
 In onderstaande kaart wordt een cluster opgesplitst op basis van een spoorweglijn.
 De habitatkaart polygonen aan beide kanten van de spoorweg raken elkaar niet, maar de polygonen werden in eerste instantie samengevoegd via de buffer van 7.5 m rond de polygonen. 
-Door de barriere uit te knippen, worden de clusters (zoals gewenst) opgesplitst.
+Door de barrière uit te knippen, worden de clusters (zoals gewenst) opgesplitst.
 
 ```{r}
 cluster_id_sel <- str_c("msa91xx_5767_", 1:9)
@@ -380,7 +383,7 @@ polygon_select %>%
   )
 ```
 
-### Hoeveel cluster worden geknipt door barrières?
+### Hoeveel clusters worden geknipt door barrières?
 
 ```{r}
 clusters_msa91xx %>%
@@ -401,7 +404,7 @@ clusters_msa91xx %>%
 
 ### Oppervlakte clusters
 
-Onderstaande figuur toont de verdeling van de oppervlakteklassen voor beide type clusters en geeft ook aan welk deel van de clusters minstens één polygoon bevat die geintersecteerd is met een barrière.
+Onderstaande figuur toont de verdeling van de oppervlakteklassen voor beide lagen van clusters en geeft ook aan welk deel van de clusters minstens één polygoon bevat die geintersecteerd is met een barrière.
 
 ```{r}
 check_area_clusters %>%
@@ -476,7 +479,7 @@ clusters_msa2180 <- clusters_msa2180 %>%
 ```
 
 
-## Bereken MSA per cluster en per habitattypes/habitatsubtypes of combinatie van habitattypes/habitatsubtypes
+## Bereken MSA per cluster en per habitattype/habitatsubtype of combinatie van habitattypes/habitatsubtypes
 
 ### Werkwijze 
 
@@ -594,18 +597,18 @@ We schrijven de clusters met de msa per habitattype weg als een geopackage 'clus
 + msa_91xx
 + msa_2180
 
-```{r}
+```{r, eval = FALSE}
 clusters_msa91xx_final %>%
   st_write(dsn = "output/clusters_msa_v2023.gpkg", layer = "msa_91xx", delete_dsn = TRUE, driver = "GPKG")
 
 clusters_msa2180_final %>%
   st_write(dsn = "output/clusters_msa_v2023.gpkg", layer = "msa_2180", append = TRUE, driver = "GPKG")
 ```
-Als alteratief kan ook gebruik gemaakt worden van clusters bestaande uit de originele polygonen van de habitatkaart.
+Als alternatief kan ook gebruik gemaakt worden van clusters bestaande uit de originele polygonen van de habitatkaart.
 Alle polygonen behorende tot eenzelfde cluster worden daarin samengevoegd in een MULTIPOLYGON.
 we schrijven dit resultaat weg als een geopackage 'clusters_habmap_msa_v2023'.
 
-```{r}
+```{r, eval = FALSE}
 clusters_habmap_msa91xx_final %>%
   st_cast("MULTIPOLYGON") %>%
   st_write(dsn = "output/clusters_habmap_msa_v2023.gpkg", layer = "msa_91xx", delete_dsn = TRUE, driver = "GPKG")
@@ -630,8 +633,8 @@ clusters_table %>%
   
 ```
 
-
-De reproduceerbaarheid van het resultaat kan gecontroleerd worden via de md5-hash.
+De resultaten kunnen gereproduceerd worden op basis van de R-code in dit rapport.
+Om na te gaan of het script exact de zelfde bestanden genereert, vergelijken we de md5-hash van de gegenereerde bestanden met een referentiewaarde.
 
 ```{r}
 
@@ -648,7 +651,6 @@ hashes <-
                          }) %>% as.character,
            md5_ref = c("5571f72531ee53ec81a422cb5e5fb53e",
                        "4573dc648b41c3e838f989274be5d635",
-                       "edfbddf606513e2e088755c351daf555",
                        "4b6a54488e768923106dc50bbeb0dbdc"),
            match = md5 == md5_ref) %>%
     select(filename,
